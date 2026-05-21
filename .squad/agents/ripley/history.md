@@ -93,3 +93,14 @@ See history-archive.md for complete history including AzDO auth patterns, MCP SD
 - Ripley executed cleanly: merged PR #54, bumped 3 version stamps (HelixTool.csproj + server.json variants), pushed tag, watched publish.yml workflow complete (26243596534, 33s, all green), verified asset on nuget.org.
 - No deviations from the established pattern (ship-after-merge, tag-based trigger, ncipollo/release-action auto-creation).
 - **First release enforcing strict dispatch rule end-to-end.** Success signal for scaling Squad's role-based task routing.
+
+## Learnings — v0.7.2 Design: Surface WorkItemSummary fields (2026-05-21 Dallas)
+
+Dallas filed design proposal in `.squad/decisions/inbox/dallas-surface-workitem-fields.md` (Brady approved option B: surface + optimize `GetJobStatusAsync`). Proposal details interface changes to `IWorkItemSummary`, adapter wiring, ~95% API call reduction for jobs with mostly-passing items, test plan, and risks. Extracted reusable skill guidance to `.squad/skills/sdk-adapter-extension/` for future SDK field surfacing. Ripley to implement on branch `feat/workitem-summary-exit-code`.
+
+## Learnings — v0.7.2 implementation notes (2026-05-21)
+
+- SDK-backed summary fields must be added in lockstep across `IWorkItemSummary`, `HelixApiClient.WorkItemSummaryAdapter`, and `CachingHelixApiClient.WorkItemSummaryDto`; leaving any layer behind silently drops the new data.
+- `GetJobStatusAsync` optimization pattern: branch on `summary.ExitCode` immediately after `ListWorkItemsAsync` — `0` can return a lightweight passed `WorkItemResult`, while `null` and non-zero must still flow through the throttled detail-fetch path.
+- Nullable SDK fields are the compatibility boundary: `int? ExitCode` and `string? ConsoleOutputUri` must stay nullable so older cached payloads and older server responses deserialize to `null` and trigger the detail fallback instead of being misclassified.
+- For this repo's feature shipping flow, branch creation + validation + draft PR was: `git switch -c feat/workitem-summary-exit-code`, `dotnet build --nologo`, `dotnet test --nologo --no-build`, then `gh pr create --draft` once the branch was pushed.
