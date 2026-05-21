@@ -120,3 +120,20 @@
 - Phase 3 (Client completion details): 1 hour (if needed)
 
 - Outcome document: `.squad/decisions/inbox/ash-mcp-sdk-adoptable-features.md`
+
+### 2026-05-21: MCP Exception Audit — Exception Hygiene Analysis
+
+- Audited all 27 MCP tool methods in src/HelixTool.Mcp.Tools/ for exception handling patterns
+- Classification: 26 tools pre-wrapped (posture A), 1 tool raw-throw (posture B), 0 implicit, 0 swallowed, 0 mixed
+- **Single issue found:** helix_ci_guide (CiKnowledgeTool.cs:11–20) calls CiKnowledgeService.GetGuide() without try/catch wrapper; raw exceptions bubble to JSON-RPC layer
+- **Fix complexity:** Trivial (add try/catch, wrap in McpException — 3 lines)
+- **Pattern excellence:** All other 26 tools follow BinlogMcp's McpException pattern correctly: broad catch for service-layer exceptions, context-specific catch for semantic errors (e.g., "not found"), pre-call parameter validation, config-based guards
+- **Key patterns observed:**
+  - Broad catch pattern: `catch (Exception ex) when (ex is HttpRequestException or HelixException or ...)`
+  - Context-specific: `catch (InvalidOperationException ex) when (ex.Message.Contains("not found", ...))`
+  - Pre-call validation: Parameter checks before service calls
+  - Config guards: StringHelpers.IsFileSearchDisabled checks
+- **Open questions:** (1) Should CiKnowledgeService validate repo names before lookup or rely on wrapper? (2) Are auth-status methods (helix_auth_status, azdo_auth_status) truly safe-for-no-wrapping? (Both synchronous, no I/O. Yes, safe.) (3) Future: structured error codes vs message-only?
+- **Audit methodology extracted** → reusable process for auditing any MCP tool set by posture, user visibility, and fix complexity
+- **Deliverable:** Comprehensive audit report in .squad/decisions/inbox/ash-mcp-exception-audit.md
+
