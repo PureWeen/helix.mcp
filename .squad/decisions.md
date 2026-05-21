@@ -642,3 +642,63 @@ git worktree add /path/to/worktree-2 squad/branch-2
 
 Dallas (CI/coordination) — recommend baking this into squad orchestration checklist.
 
+---
+date: 2026-05-21
+author: ripley
+type: recommendation
+---
+
+# Dependency Audit Recommendations — v0.7.1 vs v0.8.0
+
+## Context
+
+Full audit of `Directory.Packages.props` run on 2026-05-21. No vulnerable packages. One deprecated direct package (`Azure.Identity` 1.13.2). No security issues.
+
+## Recommended for v0.7.1 (patch release)
+
+These are low-risk and should ship together:
+
+| Package | From | To | Gap | Rationale |
+|---------|------|----|-----|-----------|
+| `Azure.Identity` | 1.13.2 | 1.21.0 | minor | Clears deprecated flag; types forwarded to Azure.Core (non-breaking for our usage) |
+| `Microsoft.Data.Sqlite` | 9.0.7 | 10.0.8 | major (net version) | Natural net10 alignment; standard .NET servicing version lockstep |
+| `Microsoft.Extensions.DependencyInjection` | 10.0.3 | 10.0.8 | patch | Servicing |
+| `Microsoft.Extensions.Hosting` | 10.0.0 | 10.0.8 | patch | Servicing |
+| `Microsoft.Extensions.Http` | 10.0.0 | 10.0.8 | patch | Servicing |
+
+## Hold for v0.8.0 or separate PR
+
+| Package | From | To | Reason to hold |
+|---------|------|----|----------------|
+| `Microsoft.CodeAnalysis.CSharp` | 4.12.0 | 5.3.0 | Major Roslyn bump; needs generator compile verification; low-urgency for tooling project |
+| `xunit` | 2.9.3 (2.*) | xunit.v3 | Test framework migration, not a bump; separate effort |
+
+## Packages at latest / not applicable
+
+- `ConsoleAppFramework` 5.7.13 — at latest
+- `ModelContextProtocol` 1.3.0 — at latest
+- `ModelContextProtocol.AspNetCore` 1.3.0 — at latest
+- `Microsoft.DotNet.Helix.Client` — pinned to dnceng beta feed; "Not found" response is expected; leave alone
+
+## Notes
+
+- `Azure.Identity` 1.20.0 introduced a DI return-type break (`AddAzureClient` etc.) but we use `AzureCliCredential` directly, so this is not a risk.
+- `Microsoft.Data.Sqlite` version follows .NET runtime versioning conventions; 10.0.x → net10.0 target is the intended pairing.
+- All `Microsoft.Extensions.*` updates are within the .NET 10 servicing band.
+
+# Decision drop: azdo_auth_status is not sync-safe
+
+**Date:** 2026-05-21T11:27:27-05:00  
+**Author:** Ripley
+
+## Context
+Ash's MCP exception follow-up list treated `azdo_auth_status` as a possible trivial sync conversion if it only read cached/local state like `helix_auth_status`.
+
+## Finding
+- `src/HelixTool.Mcp.Tools/AzDO/AzdoMcpTools.cs` delegates `azdo_auth_status` to `IAzdoTokenAccessor.AuthStatusAsync()`.
+- `src/HelixTool.Core/AzDO/IAzdoTokenAccessor.cs` shows `AzCliAzdoTokenAccessor.AuthStatusAsync()` awaiting `_resolutionLock.WaitAsync(...)` and, on cache miss, `ResolveFallbackCredentialAsync(...)`.
+- That fallback path probes `AzureCliCredential.GetTokenAsync(...)` and then `az account get-access-token`, so the call can perform real credential I/O and subprocess work before returning status.
+
+## Implication
+- Do **not** convert `azdo_auth_status` to a synchronous MCP method in the current shape.
+- If parity with `helix_auth_status` is still desired later, add a separate non-probing cached snapshot API first, then switch the tool to that surface.
