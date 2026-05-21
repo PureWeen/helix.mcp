@@ -1,10 +1,32 @@
 # Decisions
+# MCP Exception Audit — Findings and Recommendations
+# US-31: hlx_search_file Phase 1 Implementation
+# Decision: Status filter refactored from boolean to enum-style string
+# US-32: TRX Parsing Implementation Notes
+# Decision: Status Filter Test Coverage Strategy
+# Decision: Timeline search result types live in Core
+# Decision: Test Quality Review — Tautological Test Findings
+# Dallas decisions inbox — Discoverability review (2026-03-10)
+# MCP SDK v1.0.0 → v1.3.0 Upgrade Research
+# Ripley — MCP SDK 1.3.0 upgrade & CPM migration
+# MCP SDK 1.1.0–1.3.0 Adoptable Features Evaluation
+# Decision: MCP tool annotations + NU1507 cleanup batch (PR #47)
+# Decision: MCP progress notifications via auto-injected `IProgress<T>`
+# Decision: SDK 1.0.0 → 1.3.0 upgrade verdict (Lambert)
+# Decision: Parallel squad work should use separate git worktrees
+# Instead of:
+# ... Ripley works ...
+# ... Ripley works ...
+# Use:
+# Each agent works in isolation
+# Cleanup: git worktree remove /path/to/worktree-N
+# Dependency Audit Recommendations — v0.7.1 vs v0.8.0
+# Decision drop: azdo_auth_status is not sync-safe
 
 > Shared team decisions — the single source of truth for architectural and process choices.
 
 ### 2026-05-21: MCP Exception Audit
 
-# MCP Exception Audit — Findings and Recommendations
 **Date:** 2026-05-21  
 **Analyst:** Ash (Product Analyst)  
 **Scope:** src/HelixTool.Mcp.Tools/ — all 27 MCP tool methods  
@@ -362,24 +384,17 @@ From .squad/decisions.md (2026-03-13):
 - **Rationale:** `hlx` is shipped as a global `dotnet tool`, so its generated runtimeconfig controls whether the executable starts on machines that only have a newer shared framework installed. `Major` allows `net10.0` to run on .NET 11+ when .NET 10 is absent, avoiding startup failures for both the CLI and `hlx mcp serve`.
 - **Scope:** This applies only to the executable project `HelixTool`. Library projects do not produce the tool runtimeconfig and should not be changed for this policy.
 
-# US-31: hlx_search_file Phase 1 Implementation
 
 **By:** Ripley
-# Decision: Status filter refactored from boolean to enum-style string
 
 **By:** Ripley
-# US-32: TRX Parsing Implementation Notes
 
 **By:** Ripley  
-# Decision: Status Filter Test Coverage Strategy
 
 **By:** Lambert (Tester)
-# Decision: Timeline search result types live in Core
 
 **By:** Ripley
-# Decision: Test Quality Review — Tautological Test Findings
 
-# Dallas decisions inbox — Discoverability review (2026-03-10)
 
 1. **Do not add a new composite failure-investigation tool in this increment.**
    Improve discoverability through existing surfaces: MCP tool descriptions, fallback/error messages, `helix_ci_guide`, README, and llmstxt/help output.
@@ -396,7 +411,6 @@ From .squad/decisions.md (2026-03-13):
 5. **Keep discoverability surfaces synchronized.**
    MCP descriptions, README, llmstxt/help output, and CI-guide wording must align on when to use `helix_test_results`, when to pivot to AzDO structured results, and when to use `helix_search_log`.
 
-# MCP SDK v1.0.0 → v1.3.0 Upgrade Research
 
 **Requested by:** Larry Ewing  
 **Date:** 2026-05-15  
@@ -599,34 +613,22 @@ Standard pull request with passing tests.
 
 ---
 
-# Ripley — MCP SDK 1.3.0 upgrade & CPM migration
 
 **Status:** shipped to branch (`squad/mcp-sdk-1.3.0-upgrade`), unpushed, awaiting Larry review then Lambert tests.  
-# MCP SDK 1.1.0–1.3.0 Adoptable Features Evaluation
 
-# Decision: MCP tool annotations + NU1507 cleanup batch (PR #47)
 
 **Author:** Ripley  
-# Decision: MCP progress notifications via auto-injected `IProgress<T>`
 
 **Author:** Ripley  
-# Decision: SDK 1.0.0 → 1.3.0 upgrade verdict (Lambert)
 
 **Author:** Lambert (QA)  
-# Decision: Parallel squad work should use separate git worktrees
 
 **Author:** Scribe (from Ripley incident report)  
-# Instead of:
 git checkout squad/branch-1    # in /path/to/repo
-# ... Ripley works ...
 git checkout squad/branch-2    # race condition possible
-# ... Ripley works ...
 
-# Use:
 git worktree add /path/to/worktree-1 squad/branch-1
 git worktree add /path/to/worktree-2 squad/branch-2
-# Each agent works in isolation
-# Cleanup: git worktree remove /path/to/worktree-N
 ```
 
 **When to apply:**
@@ -648,7 +650,6 @@ author: ripley
 type: recommendation
 ---
 
-# Dependency Audit Recommendations — v0.7.1 vs v0.8.0
 
 ## Context
 
@@ -686,7 +687,6 @@ These are low-risk and should ship together:
 - `Microsoft.Data.Sqlite` version follows .NET runtime versioning conventions; 10.0.x → net10.0 target is the intended pairing.
 - All `Microsoft.Extensions.*` updates are within the .NET 10 servicing band.
 
-# Decision drop: azdo_auth_status is not sync-safe
 
 **Date:** 2026-05-21T11:27:27-05:00  
 **Author:** Ripley
