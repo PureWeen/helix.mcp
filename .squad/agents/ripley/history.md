@@ -1,22 +1,8 @@
-# Ripley — History
 
-## Project Learnings (from import)
-- **Project:** hlx — Helix Test Infrastructure CLI & MCP Server
-- **User:** Larry Ewing
-- **Stack:** C# .NET 10, ConsoleAppFramework, ModelContextProtocol, Microsoft.DotNet.Helix.Client
-- **Structure:** Four projects — HelixTool.Core (shared library), HelixTool (CLI), HelixTool.Mcp (HTTP MCP server), HelixTool.Mcp.Tools (MCP tool definitions)
-- **Key service methods:** GetJobStatusAsync, GetWorkItemFilesAsync, DownloadConsoleLogAsync, GetConsoleLogContentAsync, FindBinlogsAsync, DownloadFilesAsync, GetWorkItemDetailAsync, GetBatchStatusAsync, DownloadFromUrlAsync
-- **HelixIdResolver:** Handles bare GUIDs, full Helix URLs, and `TryResolveJobAndWorkItem` for URL-based jobId+workItem extraction
-- **MatchesPattern:** Simple glob — `*` matches all, `*.ext` matches suffix, else substring match
+**2026-05-21 10:33Z:** Ash audit found helix_ci_guide needs exception wrapping (5-line fix). See decisions.md for details.
 
-## Core Context
 
-- **Implementation layout:** service code lives under `src/HelixTool.Core/Helix/` and `src/HelixTool.Core/AzDO/`; MCP tool definitions live under `src/HelixTool.Mcp.Tools/Helix/` and `src/HelixTool.Mcp.Tools/AzDO/`.
-- **Cache/search primitives:** `CachingHelixApiClient`, `CachingAzdoApiClient`, `StringHelpers`, and `TextSearchHelper` are the shared implementation seams; `HLX_CACHE_MAX_SIZE_MB=0` disables caching and `HLX_DISABLE_FILE_SEARCH` disables file-content search.
-- **Wire-format conventions:** structured MCP tools use `UseStructuredContent=true`, camelCase JSON/property names remain stable, and descriptions stay behavior-first with repo-specific guidance routed to `helix_ci_guide`.
-- **Hot-path log rules:** keep large-log search/tail work span-based, overflow-safe, and semantically aligned with server behavior; when tagging raw cached payloads, prefer collision-proof sentinels over human-readable prefixes.
-- **Test/routing defaults:** avoid layer-duplicate or passthrough-only tests, and keep repo-specific workflow guidance in `helix_ci_guide` instead of bloating always-loaded tool descriptions.
-- **Auth/runtime:** Helix auth remains env-var based, while AzDO auth now uses the narrow chain `AZDO_TOKEN` → `AzureCliCredential` → az CLI → anonymous with metadata carried by `AzdoCredential`.
+# Summary (archived 1 older sections)
 
 ## Summarized History (2026-03-08 through 2026-03-13 pre-PR-28) — archived 2026-03-13
 
@@ -196,3 +182,4 @@ Detailed notes for AzDO search/log ranking, MCP error surfacing, CI-knowledge de
 - Confirmed the MCP tool exception pattern is `catch (Exception ex) when (...)` followed by `throw new McpException($"Failed to {action}: {ex.Message}", ex);`, preserving the original exception as `InnerException` for debugging.
 - `azdo_auth_status` is **not** sync-safe in its current shape: `AzCliAzdoTokenAccessor.AuthStatusAsync()` can await `_resolutionLock.WaitAsync(...)` and perform fallback credential resolution through `AzureCliCredential` or `az account get-access-token` on cache miss, so the MCP tool should stay async unless we add a non-probing snapshot API first.
 - PR #53 tracks the `helix_ci_guide` exception wrap and the auth-status audit follow-up.
+See history-archive.md for complete history.
