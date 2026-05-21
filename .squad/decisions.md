@@ -702,3 +702,25 @@ Ash's MCP exception follow-up list treated `azdo_auth_status` as a possible triv
 ## Implication
 - Do **not** convert `azdo_auth_status` to a synchronous MCP method in the current shape.
 - If parity with `helix_auth_status` is still desired later, add a separate non-probing cached snapshot API first, then switch the tool to that surface.
+# Decision: v0.7.1 dep-bump ship pattern
+
+**Date:** 2026-05-21  
+**Author:** Ripley  
+**PR:** #54 (`chore/v0.7.1-deps`)
+
+## Decision
+
+We follow the **ship-after-merge tag-bump pattern** for patch releases:
+
+1. Dep-bump PR merges to `main` (no version stamp changes in the PR).
+2. After merge, Lewing bumps version stamps in `.csproj` and `server.json` and tags `vX.Y.Z`.
+
+This was established for v0.7.0 and confirmed again for v0.7.1. It keeps version-stamp noise out of dependency PRs and centralizes release tagging with the repo owner.
+
+## Supporting context
+
+- v0.7.0 followed this same flow.
+- PR #54 intentionally omits any `<Version>` change in `HelixTool.csproj`.
+- Post-merge, Lewing will tag `v0.7.1` — no action required from squad agents.
+
+

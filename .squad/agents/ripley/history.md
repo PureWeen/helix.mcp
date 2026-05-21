@@ -32,7 +32,32 @@
 - Confirmed the MCP tool exception pattern is `catch (Exception ex) when (...)` followed by `throw new McpException($"Failed to {action}: {ex.Message}", ex);`, preserving the original exception as `InnerException` for debugging.
 - `azdo_auth_status` is **not** sync-safe in its current shape: `AzCliAzdoTokenAccessor.AuthStatusAsync()` can await `_resolutionLock.WaitAsync(...)` and perform fallback credential resolution through `AzureCliCredential` or `az account get-access-token` on cache miss.
 - PR #53 tracks the `helix_ci_guide` exception wrap and the auth-status audit follow-up.
+See history-archive.md for complete history.
 
 # Summary (archived older history before 2026-05-20)
 
 See history-archive.md for complete history including AzDO auth patterns, MCP SDK upgrades, CLI schema generation, release conventions, and earlier learnings from 2025-03 through 2026-03.
+
+## Learnings — dnceng feed & Helix.Client version format (2026-05-21)
+
+**Feed URL pattern:** `https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/flat2/{package-id}/index.json` for the flat index. The registration endpoint (for publish dates) is accessed via the GUID-based URL found in the index response's `items[].@id` fields.
+
+**Version number format:** `11.0.0-beta.{YYMDD}.{build}` where `M` is the **single-digit month** (1–9 for Jan–Sep, 10–12 for Oct–Dec) and `DD` is zero-padded two-digit day. So `26110` = YY=26, M=1(Jan), DD=10 → **Feb 10, 2026** (the publish date, not necessarily the commit date — there is a pipeline delay of ~1 day). The embedded date reflects the **build pipeline date**, not the git commit date.
+
+**Gotcha:** The task-prompt shorthand "26110 = 2026-01-10 build" is misleading — NuGet registration shows `26110.116` was actually published **2026-02-10**. The number encodes the Arcade daily build pipeline run date.
+
+**Source repo:** `dotnet/arcade` (not `dotnet/arcade-services`). Helix.Client lives at `src/Microsoft.DotNet.Helix/Client/CSharp/`. Search commits with `gh api "repos/dotnet/arcade/commits?path=src/Microsoft.DotNet.Helix/Client&since=..."`.
+
+**Multiple major versions:** The dnceng feed publishes 11.x, 10.x, 9.x, 8.x, 6.x simultaneously (different SDK stream branches). We are on 11.x which is the head/main stream. Stick to 11.x when bumping.
+
+**Daily build cadence:** The feed produces multiple builds per day (build numbers 100–130 = internal official builds; 1–9 = PR/validation builds). The highest-numbered build of the day is typically the last official build.
+
+## Learnings — CPM bump for v0.7.1 (2026-05-21)
+
+**CPM bump workflow confirmed:** For a pure version-bump PR in this repo, the only file to touch is `Directory.Packages.props`. No `.csproj` changes needed — CPM resolves versions centrally. Restore picks up new versions automatically on first run after the props edit.
+
+**Azure.Identity deprecation behavior:** NuGet marks 1.13.2 as deprecated with reason "Other" (not "HasVulnerability" or "CriticalBugs"). The deprecation is purely a "please upgrade" signal, not a security advisory. Upgrading to 1.21.0 clears it. The type-forwarding change (types moved from Azure.Identity to Azure.Core via `[TypeForwardedTo]`) is binary-compatible — our `AzureCliCredential` usage compiles and runs unchanged.
+
+**Microsoft.Data.Sqlite major version cross (9→10):** Moving from 9.0.7 to 10.0.8 crosses a major version boundary but is safe here because we target `net10.0` and there are no API surface changes for our usage patterns (basic connection/command/reader). SQLitePCLRaw transitive dependencies bump automatically.
+
+**PR #54:** `chore(deps): bump 6 packages for v0.7.1` — branch `chore/v0.7.1-deps`, all 6 bumps in one commit. Build green (0/0), tests green (1180/1180). Lewing will merge and tag v0.7.1 separately.
