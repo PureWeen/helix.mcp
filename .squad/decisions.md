@@ -723,4 +723,49 @@ This was established for v0.7.0 and confirmed again for v0.7.1. It keeps version
 - PR #54 intentionally omits any `<Version>` change in `HelixTool.csproj`.
 - Post-merge, Lewing will tag `v0.7.1` — no action required from squad agents.
 
+---
+
+# Release: v0.7.1 (2026-05-21T13:28Z)
+
+**Date:** 2026-05-21T13:28:00Z  
+**Author:** Scribe / Coordinator (released by Lewing)  
+**Tag:** v0.7.1  
+**Commit:** 4477589  
+**Release URL:** https://github.com/lewing/helix.mcp/releases/tag/v0.7.1  
+
+## Summary
+
+v0.7.1 is a **dependency-refresh patch release** shipping PR #54 (`chore(deps): bump 6 packages for v0.7.1`) merged at b2c62ec. All 6 dependency bumps are low-risk and focused on alignment + deprecation resolution.
+
+## Changes
+
+**Package updates (merged from PR #54):**
+
+| Package | From | To | Reason |
+|---------|------|----|--------|
+| Azure.Identity | 1.13.2 | 1.21.0 | Clears NuGet-deprecated flag; types forwarded to Azure.Core (non-breaking) |
+| Microsoft.Data.Sqlite | 9.0.7 | 10.0.8 | net10 alignment |
+| Microsoft.Extensions.DependencyInjection | 10.0.3 | 10.0.8 | Servicing |
+| Microsoft.Extensions.Hosting | 10.0.0 | 10.0.8 | Servicing |
+| Microsoft.Extensions.Http | 10.0.0 | 10.0.8 | Servicing |
+| Microsoft.DotNet.Helix.Client | 11.0.0-beta.26110.116 | 11.0.0-beta.26265.121 | Adds `WorkItemSummary.ExitCode` + `.ConsoleOutputUri` (additive, not yet surfaced through `IWorkItemSummary`) |
+
+**Build & test:** 0 errors, 1180/1180 tests passing.  
+**Asset:** `lewing.helix.mcp.0.7.1.nupkg` published to nuget.org.  
+**Workflow:** publish.yml run 26243596534, 33s, all green. Release created automatically by ncipollo/release-action.
+
+## Open follow-up
+
+**Decision pending:** Surface new Helix.Client `ExitCode` + `ConsoleOutputUri` fields through `IWorkItemSummary` adapter (3 options: surface-only, surface+optimize ConsoleLogAsync, file-for-later). No commitment made; options documented for next phase.
+
+## Release process notes
+
+Ripley executed the release cleanly via the standardized **3-stamp lockstep + tag + publish.yml flow**, following the established ship-after-merge pattern:
+1. PR #54 merges to main (version stamps unchanged in PR).
+2. Version stamps bumped post-merge in `HelixTool.csproj` and `server.json`.
+3. Tag pushed; `publish.yml` triggers and auto-creates GitHub Release.
+4. No manual `gh release create` needed — `ncipollo/release-action` handles it.
+
+**Process enforcement:** This was the first release following the **strict Coordinator dispatch rule end-to-end** — release work routed to Ripley (claude-haiku-4.5) per the role-to-model map. Pattern held; no deviations.
+
 

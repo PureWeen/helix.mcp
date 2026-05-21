@@ -86,3 +86,10 @@ See history-archive.md for complete history including AzDO auth patterns, MCP SD
 **Verification:** After workflow completes, `gh release view v0.7.1 --json assets` confirms `lewing.helix.mcp.0.7.1.nupkg` is attached. Release URL: `https://github.com/lewing/helix.mcp/releases/tag/v0.7.1`
 
 **All steps confirmed working 2026-05-21 v0.7.1 release.**
+
+## Learnings — Strict Coordinator Dispatch Rule (2026-05-21 v0.7.1)
+
+- Coordinator dispatched the entire v0.7.1 release workflow to Ripley (claude-haiku-4.5) per the strict role-to-model map, with no ad-hoc hand-offs or human intervention mid-stream.
+- Ripley executed cleanly: merged PR #54, bumped 3 version stamps (HelixTool.csproj + server.json variants), pushed tag, watched publish.yml workflow complete (26243596534, 33s, all green), verified asset on nuget.org.
+- No deviations from the established pattern (ship-after-merge, tag-based trigger, ncipollo/release-action auto-creation).
+- **First release enforcing strict dispatch rule end-to-end.** Success signal for scaling Squad's role-based task routing.
