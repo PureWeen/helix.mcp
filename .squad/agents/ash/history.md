@@ -45,3 +45,4 @@
 > - MCP exception audit findings (2026-05-21)
 
 Full text preserved in archive. Current history focuses on active/recent work.
+- [2026-05-22] v0.7.3 shipped (PR #56 + PR #57 → main → NuGet)

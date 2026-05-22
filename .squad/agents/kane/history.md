@@ -99,3 +99,4 @@
 - Consider mentioning `[AllowedValues]` + `OpenWorld=false` annotations in security/capability section if docs cover MCP best practices
 
 **Status:** PRs open, awaiting Dallas code review.
+- [2026-05-22] v0.7.3 shipped (PR #56 + PR #57 → main → NuGet)

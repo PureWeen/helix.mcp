@@ -168,3 +168,4 @@ Dallas filed design proposal in `.squad/decisions/inbox/dallas-surface-workitem-
 
 **PR #57 merged to main at 3c4728c.** Ripley completed description tightening on 8 tools (229 → 93 words, 136 recovered). Lambert fixed assertion coupling by routing devdiv knowledge verification to CiKnowledgeService response content. Dallas reviewed, approved, and merged; flagged two follow-ups: (a) establish quarterly description audit cadence, (b) restore azdo_builds→azdo_search_timeline cross-reference in future pass. Baseline decision recorded in decisions.md with full audit counts and pattern guidance for next drift check.
 
+- [2026-05-22] v0.7.3 shipped (PR #56 + PR #57 → main → NuGet)

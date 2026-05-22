@@ -20,3 +20,4 @@
 # Summary (archived 1 older sections)
 
 See history-archive.md for complete history.
+- [2026-05-22] v0.7.3 shipped (PR #56 + PR #57 → main → NuGet)
