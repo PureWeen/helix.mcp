@@ -23,6 +23,8 @@
 
 **Next:** Ripley now executing on branch `feat/mcp-description-tightening`
 
+**2026-05-22 Team Update:** Ripley completed description tightening (136 words recovered, 8 tools), Lambert fixed assertion coupling, Dallas reviewed and merged PR #57 to main at 3c4728c. Audit baseline established in decisions.md; follow-ups flagged (quarterly audit cadence, azdo_builds cross-reference restoration).
+
 ---
 
 ## Prior Work (2026-02-13 through 2026-05-21)

@@ -143,3 +143,8 @@ Dallas filed design proposal in `.squad/decisions/inbox/dallas-surface-workitem-
 - For `[McpServerTool]` descriptions, follow the `mcp-server-design` rubric in `.squad/skills/mcp-filter-api-design/SKILL.md`: lead with a verb, stay around 20 words or less, and push defaults/filter enumerations down into parameter descriptions.
 - Schema dumps and repo-specific/domain guidance belong in response content (`CiKnowledgeService` overview/profile text), not in always-loaded tool description metadata.
 - The second-pass audit on 2026-05-22 showed description drift had already crept back in roughly three months after the prior tightening pass, so periodic re-audits are warranted.
+
+## Team Update (2026-05-22 completion)
+
+**PR #57 merged to main at 3c4728c.** Ripley completed description tightening on 8 tools (229 → 93 words, 136 recovered). Lambert fixed assertion coupling by routing devdiv knowledge verification to CiKnowledgeService response content. Dallas reviewed, approved, and merged; flagged two follow-ups: (a) establish quarterly description audit cadence, (b) restore azdo_builds→azdo_search_timeline cross-reference in future pass. Baseline decision recorded in decisions.md with full audit counts and pattern guidance for next drift check.
+

@@ -1313,3 +1313,35 @@ Dallas's approved AzDO timeline filter preset design requires one shared normali
 - One canonical filter implementation now drives timeline filtering, timeline search filtering, and Helix job task selection.
 - Silent aliases remain schema-invisible while still being accepted operationally.
 - `azdo_helix_jobs` can now surface active Helix submission tasks before issue messages expose a GUID.
+
+### 2026-05-22: Ripley — MCP Description Tightening Baseline
+
+## Context
+Ash's 2026-05-22 second-pass audit rechecked all `[McpServerTool]` descriptions in `src/HelixTool.Mcp.Tools/` against the mcp-server-design rubric. Eight tools had drifted back into bloat/domain-knowledge/schema-dump patterns even though a prior tightening pass had already established the intended style.
+
+## Baseline for future drift checks
+- Scope audited: 25 MCP tools in `src/HelixTool.Mcp.Tools/`
+- Tools tightened in this pass: `azdo_builds`, `azdo_timeline`, `azdo_build_analysis`, `azdo_helix_jobs`, `azdo_test_results`, `helix_ci_guide`, `helix_status`, `helix_files`
+- Description pattern to preserve:
+  - lead with a verb
+  - keep the summary compact (target ~20 words or less)
+  - do not duplicate `AllowedValues` / defaults from parameter descriptions
+  - do not enumerate response fields in the tool description
+  - move repo-specific or workflow-specific guidance into response content, not metadata
+
+## 2026-05-22 counts
+| Tool | Before | After |
+| --- | ---: | ---: |
+| azdo_builds | 29 | 14 |
+| azdo_timeline | 45 | 20 |
+| azdo_build_analysis | 30 | 9 |
+| azdo_helix_jobs | 31 | 11 |
+| azdo_test_results | 25 | 11 |
+| helix_ci_guide | 24 | 10 |
+| helix_status | 24 | 7 |
+| helix_files | 21 | 11 |
+| **Total** | **229** | **93** |
+
+## Notes
+- `helix_ci_guide` repo coverage and the `macios`/`android` devdiv guidance were already preserved in `src/HelixTool.Core/CiKnowledgeService.cs`, so tightening the tool description did not drop that knowledge.
+- One test currently asserts on `helix_ci_guide` description text containing `devdiv` (`HelixMcpToolsTests.CiGuide_Description_PromotesGuideAsEarlyEntryPoint`). That is a test smell and should be handled as a Lambert follow-up if description-tightening continues.
