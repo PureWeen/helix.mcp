@@ -2,6 +2,21 @@
 
 ## Current Session (2026-05-22)
 
+### Slop Audit (Code Quality)
+- **Scope:** 28,813 LOC across 5 source dirs (MCP tools, Core, Host, Generators, Tests)
+- **Status:** Complete. Report: `.squad/decisions/inbox/ash-slop-audit-2026-05-22.md`
+- **Key findings:**
+  1. Result DTO duplication: Program.cs duplicates McpToolResults.cs for 6 JSON result classes (StatusWorkItem, StatusJobInfo, FileInfo_ pairs) — 60 LOC recoverable
+  2. Repetitive catch-throw boilerplate: 16 identical exception handlers across AzdoMcpTools + HelixMcpTools (same exception filter + McpException wrapper) — 16 LOC + 1.5h refactor effort
+  3. JSON attribute inconsistency: Some properties use inline `[JsonPropertyName]` attributes, others lack them or use different placement patterns (48 occurrences)
+  4. Schema drift monitors: Service-layer models vs MCP result types intentionally separated; not slop (justified for API stability)
+
+**Severity breakdown:** 3 HIGH (DTO duplication, catch-throw pattern, JSON consistency), 1 MEDIUM (Program.cs size—6 result classes), 1 LOW (unused imports)
+
+**Codebase health:** B+ (Lean post-PR #57; targeted cleanup opportunities remain)
+
+**Metrics:** 28,813 LOC baseline, 0.3% duplication rate, 0 TODO/FIXME comments, no test slop detected.
+
 ### MCP Tool Description Audit
 - **Scope:** 25 MCP tools across 3 assemblies (HelixTool.Core, HelixTool.Mcp.Tools, HelixTool)
 - **Status:** Complete
@@ -46,3 +61,15 @@
 
 Full text preserved in archive. Current history focuses on active/recent work.
 - [2026-05-22] v0.7.3 shipped (PR #56 + PR #57 → main → NuGet)
+
+## 2026-05-22 — Slop Audit Complete, PR #58 Merged
+
+**Status:** Audit delivered → Dallas triage → Ripley implementation → PR #58 merged to main
+
+Result DTO consolidation PR (refactor/consolidate-result-dtos) successfully merged. Findings from slop audit implemented:
+- Consolidated 6 duplicate result classes from Program.cs into McpToolResults.cs
+- Standardized [JsonPropertyName] attribute placement
+- JSON wire-format verified; 1292/1292 tests passing
+- No breaking changes to CLI or MCP tool outputs
+
+Catch-throw boilerplate extraction deferred to Q3 2026 per Dallas risk assessment.

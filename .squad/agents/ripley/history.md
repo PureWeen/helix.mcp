@@ -1,53 +1,63 @@
-## Learnings — Release flow v0.7.3 (2026-05-22T14:04:00-05:00)
+## Recent Activity Summary (2026-05-22)
 
-**Release execution summary:**
-- Synced main with `git pull` (already up-to-date, 2211115).
-- Bumped three version stamps: `HelixTool.csproj` line 12 + `server.json` top-level + packages array (all 0.7.2 → 0.7.3).
-- Build: 0 errors, 0 warnings (10.58s).
-- Tests: 1292/1292 passed (3s) — baseline 1180 + 112 from prior extensions.
-- Version commit: 73e65fd (`release: v0.7.3`).
-- Main push: `2211115..73e65fd`.
-- Tag: `v0.7.3` annotated, pushed to origin.
-- Workflow run: 26306754843, completed in 41s (all jobs green).
-- Release verification: `https://github.com/lewing/helix.mcp/releases/tag/v0.7.3`, asset `lewing.helix.mcp.0.7.3.nupkg` attached.
-- NuGet indexing: Package pushed to nuget.org; appears within typical 5-10 min indexing window.
+### v0.7.3 Release (2026-05-22)
+- Bumped 3 version stamps (HelixTool.csproj + server.json)
+- Build: 0 errors, 0 warnings (10.58s)
+- Tests: 1292/1292 passing
+- Commit: 73e65fd (`release: v0.7.3`)
+- Tag: `v0.7.3` pushed; publish workflow completed in 41s
+- Asset: `lewing.helix.mcp.0.7.3.nupkg` on nuget.org
 
-**Pattern confirmation:**
-- Third consecutive haiku-driven mechanical release (v0.7.1, v0.7.2, v0.7.3) executed flawlessly with zero deviations.
-- Release recipe is fully automated and repeatable: version bumps → build+test gate → commit → push main → tag+push → workflow auto-creation of release and NuGet push.
-- Sed-based `.json` edits continue to work reliably (no Unicode em-dash issues encountered in v0.7.3).
+### DTO Consolidation PR #58 (2026-05-22)
+- Implemented result DTO consolidation per Dallas triage verdict
+- Consolidated 6 duplicate classes from Program.cs → McpToolResults.cs
+- +93/-87 LOC (net -4 LOC); Commit 311a571
+- [JsonPropertyName] attributes standardized
+- JSON wire-format verified (status, files, work-item outputs)
+- 1292/1292 tests passing; no breaking changes
+- **Status:** Merged to main
 
-**All releases follow the established recipe with 100% consistency.** Recipe is production-ready.
+## Pattern Learnings (Archive: See history-archive.md)
 
-**2026-05-21 10:33Z:** Ash audit found helix_ci_guide needs exception wrapping (5-line fix). See decisions.md for details.
+**Release Flow (confirmed 3× consecutive releases):**
+- Version stamps: HelixTool.csproj (v), server.json (top-level + packages array)
+- Build gate: 0 errors, tests 100% passing
+- Commit → Push main → Tag → Push tag (triggers publish workflow)
+- Publish workflow auto-creates GitHub Release + NuGet push
+- Never manual `gh release create` (causes 422, skips NuGet)
 
-**2026-05-21 12:22Z:** Ran full dependency audit against Directory.Packages.props. Key findings:
-- Azure.Identity 1.13.2 is NuGet-deprecated ("Other") — update to 1.21.0 clears the flag; types type-forwarded to Azure.Core in 1.21, non-breaking for our `AzureCliCredential` usage.
-- Microsoft.Data.Sqlite 9.0.7 → 10.0.8 is a natural net10 alignment bump.
-- Microsoft.Extensions.* (DI/Hosting/Http) at 10.0.0–10.0.3 can be patched to 10.0.8 safely (servicing releases).
-- Microsoft.CodeAnalysis.CSharp 4.12.0 → 5.3.0 is a major version for the generator project; warrants a compile check before shipping.
-- ConsoleAppFramework 5.7.13 and ModelContextProtocol 1.3.0 are at latest.
-- Microsoft.DotNet.Helix.Client reports "Not found at sources" — only updates from the dnceng feed, so leave pinned.
-- xunit 2.x is marked Legacy; test framework migration is out of scope for a patch.
-- No vulnerable packages found. Recommended ship 5 🟢 packages (Azure.Identity, Microsoft.Data.Sqlite, 3x Microsoft.Extensions.*) as v0.7.1.
+**Release Recipe Metrics:**
+- v0.7.1: 33s workflow time (consistent)
+- v0.7.2: 38s workflow time (consistent)
+- v0.7.3: 41s workflow time (consistent)
+- **Three consecutive releases with zero deviations**
 
-## Learnings — Pagination Standardization Implementation (2026-05-20, commit 1a2e1d0)
+**Dependency Management (CPM):**
+- Central version control: `Directory.Packages.props` only
+- No `.csproj` changes needed for version bumps
+- Azure.Identity 1.13.2 → 1.21.0 (deprecated, type-forwarded, non-breaking)
+- Microsoft.Data.Sqlite 9.0.7 → 10.0.8 (major cross safe for net10.0)
 
-**Pattern learned:** When changing service-layer return types:
-1. Update the record definition (or add new wrapper)
-2. Update the service method signature + implementation
-3. Update all tool/CLI call sites
-4. Update tests that directly call the service
-5. Clean build to avoid stale reference errors
+**Code Changes (2026-05-21):**
+- PR #54: CPM bump (6 packages) v0.7.1
+- PR #55: WorkItemSummary exit-code field surfacing (v0.7.2)
+- PR #56: AzDO timeline filter presets (97 unit tests, main)
+- PR #57: MCP description tightening (8 tools, 229→93 words, main)
+- PR #58: DTO consolidation (6 classes, main)
 
-📌 Team update (2026-05-21): Pagination Phase 1+2 implemented — wrapped `azdo_changes`/`azdo_test_runs` in `LimitedResults<T>`, added `truncated`/`note` to 8 result types. Build clean. Commit 0a82e58. Full suite: 1180/1180 passing.
+**MCP Tool Patterns:**
+- Exception handling: `catch (Exception ex) when (...) { throw new McpException(...); }`
+- Description rubric: Verb-led, ~20 words, defaults in parameters
+- `azdo_auth_status` is NOT sync-safe (can await on cache miss)
 
-## Learnings — RollForward policy for global tool (2026-05-21)
+**AzDO Timeline Filters:**
+- Aliases: `inProgress`, `in-progress`, `active`, `notStarted`, `not-started`
+- `azdo_helix_jobs` gate relaxed for `running`/`pending`/`incomplete`
+- Filter helpers: `NormalizeFilter()`, `ValidateFilter()` on `AzdoService`
 
-- Set `<RollForward>Major</RollForward>` only in `src/HelixTool/HelixTool.csproj` for the generated `HelixTool.runtimeconfig.json`.
-- Do not add `RollForward` to library projects; this startup policy is only consumed by the executable entry point/runtimeconfig.
+---
 
-## Learnings — MCP exception cleanup (2026-05-21)
+### Earlier History (2026-03 through 2026-05-20)
 
 - Confirmed the MCP tool exception pattern is `catch (Exception ex) when (...)` followed by `throw new McpException($"Failed to {action}: {ex.Message}", ex);`, preserving the original exception as `InnerException` for debugging.
 - `azdo_auth_status` is **not** sync-safe in its current shape: `AzCliAzdoTokenAccessor.AuthStatusAsync()` can await `_resolutionLock.WaitAsync(...)` and perform fallback credential resolution through `AzureCliCredential` or `az account get-access-token` on cache miss.
@@ -176,3 +186,12 @@ Dallas filed design proposal in `.squad/decisions/inbox/dallas-surface-workitem-
 - The low-risk move was to add public CLI DTOs in the shared results file and alias them back into `Program.cs`, then delete the nested `Program.cs` copies. That removed the parallel definitions without changing command logic.
 - Wire-compat verification worked best as a two-layer check: full `dotnet test --nologo --no-build` for Lambert's existing JSON tests, plus explicit `--schema` spot-checks on `status`, `files`, and `work-item` to confirm property casing stayed exactly where expected.
 - The surprising detail was that the "duplicate" classes were only structurally close, not identical: MCP status includes `helixUrl` and camelCase attributes, while CLI status intentionally omits that field and leaves several properties PascalCase.
+See **history-archive.md** for detailed notes on:
+- Exception patterns and safe/unsafe async patterns
+- SDK upgrade decisions (MCP 1.0.0 → 1.3.0)
+- MCP progress notifications & auto-injection patterns
+- Parallel squad work with git worktrees
+- dnceng feed format and Helix.Client version schemes
+- Pagination standardization (Phase 1+2)
+- RollForward policy configuration
+- Earlier release flows and test suite baselines

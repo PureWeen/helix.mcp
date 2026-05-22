@@ -1345,3 +1345,89 @@ Ash's 2026-05-22 second-pass audit rechecked all `[McpServerTool]` descriptions 
 ## Notes
 - `helix_ci_guide` repo coverage and the `macios`/`android` devdiv guidance were already preserved in `src/HelixTool.Core/CiKnowledgeService.cs`, so tightening the tool description did not drop that knowledge.
 - One test currently asserts on `helix_ci_guide` description text containing `devdiv` (`HelixMcpToolsTests.CiGuide_Description_PromotesGuideAsEarlyEntryPoint`). That is a test smell and should be handled as a Lambert follow-up if description-tightening continues.
+
+---
+
+### 2026-05-22: Slop Audit — HelixTool Source Tree Analysis
+
+**Auditor:** Ash (Product Analyst)  
+**Date:** 2026-05-22  
+**Status:** Complete
+
+#### Executive Summary
+
+Codebase is lean (28,813 LOC) but shows targeted slop worth fixing:
+- **Schema drift:** DTO duplication (Program.cs vs McpToolResults.cs)
+- **Boilerplate:** 16 repetitive catch-throw patterns in MCP tools
+- **JSON inconsistency:** Attribute decoration varies across result classes
+
+**Total findings:** 3 HIGH, 2 MEDIUM, 1 LOW  
+**Refactoring impact:** Small-to-medium (mostly consolidation, low risk)
+
+#### Detailed Findings
+
+**🔴 HIGH SEVERITY**
+
+1. **Result DTO Duplication (6 classes, ~60 lines)**  
+   - Program.cs and McpToolResults.cs define parallel result classes (StatusJobJsonResult vs StatusJobInfo, etc.)
+   - Lines: Program.cs 92–177, McpToolResults.cs 7–189
+   - Recommendation: Move to McpToolResults.cs; update references (low risk, mechanical)
+
+2. **Catch-Throw Boilerplate (16 instances)**  
+   - Repetitive exception handlers in AzdoMcpTools.cs and HelixMcpTools.cs
+   - Pattern: `catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException...) { throw new McpException(...) }`
+   - Recommendation: Extract helper method or defer until test coverage improves
+
+**🟡 MEDIUM SEVERITY**
+
+3. **[JsonPropertyName] Attribute Inconsistency (48 occurrences)**  
+   - Some properties inline attributes, others above-line; some lack attributes
+   - Risk: Medium if CLI/MCP serialization disagree
+   - Recommendation: Standardize placement; bundle with DTO consolidation
+
+**Aggregate:** ~80 LOC of duplication/slop.
+
+---
+
+### 2026-05-22: Slop Audit Triage — Decision Summary
+
+**Triager:** Dallas (Architecture Lead)  
+**Date:** 2026-05-22  
+**Status:** Complete
+
+#### Verdict by Finding
+
+**Finding 1: Result DTO Duplication** → **FIX**
+- Genuine structural duplication creating maintenance hazard
+- PR: `refactor/consolidate-result-dtos`
+- Scope: 2 files, ~80 LOC modified
+- Risk: Low (mechanical consolidation only)
+- Effort: ~1 hour
+
+**Finding 2: Catch-Throw Boilerplate** → **DEFER**
+- High repetition but high extraction risk (exception handling is a control-flow boundary)
+- Unsafe without formal exception test coverage
+- Defer to Q3 2026 for dedicated test-coverage refactoring pass
+- Action: Add comments in AzdoMcpTools.cs and HelixMcpTools.cs noting pattern
+
+**Finding 3: [JsonPropertyName] Drift** → **REJECT (standalone)**
+- Style issue, not functional bug; bundle as side-effect of Finding #1 DTO consolidation
+- When moving classes to McpToolResults.cs, standardize attribute placement then
+
+**Findings 4–6** → **REJECT/DEFER**
+- Schema drift: intentional design (versioning boundary)
+- Unused imports: negligible (0.01% of LOC); defer to general cleanup
+
+#### Recommendation
+
+**Immediate:** 1 independent PR
+- Result DTO consolidation per Finding #1
+- Branch: `refactor/consolidate-result-dtos`
+- Title: "Consolidate result DTO classes into McpToolResults"
+
+**Deferred:** Exception handler extraction (Q3 2026)
+
+**Ripley sequencing:** 1 PR, ~1 hour. Ready for submission after test pass.
+
+---
+
