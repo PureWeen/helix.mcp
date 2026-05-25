@@ -121,3 +121,80 @@ blazor-playground/copilot-skills measurement agent provided field-level breakdow
 
 **Decision document:** `.squad/decisions/inbox/dallas-issue61-merge-gate-2026-05-25.md`
 **Follow-up issue:** #65 (schema tests, flatten AggregateException, unskip Lambert tests, calibration process)
+
+---
+
+## 2026-05-25: Issue #61 — Two Decision Gates + Merge Gate Review
+
+**Session:** Issue #61 Silent MCP failures (Bug A + Bug B)  
+**Status:** Issue Complete; all 3 PRs merged ✅  
+**Role:** Decision maker (Bug B re-triage) + Merge gate reviewer
+
+### Bug B Re-triage Decision (May 25)
+
+The May 22 deferral of Finding #2 (boilerplate, Q3 2026) is **no longer valid.** Ash's investigation revealed production-impact evidence: silent failures in live session caused by uncaught exception types (AggregateException, TaskCanceledException).
+
+**VERDICT: PROMOTE Finding #2 to FIX NOW** — 3–4h Ripley work to centralize exception handling.
+
+**Why the May 22 deferral was defensible then; why it's no longer valid now:**
+- **Then:** No documented user-visible impact; extraction risk without test evidence
+- **Now:** User-visible bug in production; test evidence provided by Ash
+
+**Reasoning:**
+- User-visible bug justifies proceeding (not hypothetical)
+- Centralization is lower-risk than leaving scattered
+- Test coverage is parallel, non-blocking (Lambert runs audit in parallel)
+- Timeline predictable (3–4h effort)
+
+### Merge Gate Review (Final Decision)
+
+Reviewed all three PRs (Ripley ×2, Lambert ×1) and verified technical claims.
+
+**Technical finding:** Verified via C# repro that `await Task.WhenAll(t1, t2)` unwraps to the **first inner exception**, NOT AggregateException. Only `.Wait()` throws AggregateException. This corrects Ash's narrative but validates her fix (centralized catch-all still correct).
+
+**Per-PR Verdicts:**
+- PR #62 (Ripley, parameter standardization): APPROVE & MERGE ✅
+- PR #63 (Lambert, exception coverage): APPROVE WITH FOLLOW-UP ✅
+- PR #64 (Ripley, exception centralization): APPROVE & MERGE ✅
+
+**Merge order:** #62 → #64 → #63 (all executed successfully)
+
+### Key Calibration Learning
+
+**Name an exception by exercising it, not by guessing from source-read.**
+
+Ash's investigation correctly identified the gap and the right fix, but incorrectly named "AggregateException from Task.WhenAll" as the uncaught exception. In reality, `await Task.WhenAll` unwraps to the inner exception; only `.Wait()` throws AggregateException. The actual uncaught types were TaskCanceledException and OperationCanceledException.
+
+**Better practice:**
+1. Write 10-line repro that forces failure
+2. Observe: `catch (Exception ex) { Console.WriteLine(ex.GetType()); }`
+3. Only then name the type in narrative
+
+**This is especially critical for Task.WhenAll, Task.WhenAny, ConfigureAwait** — await machinery has non-obvious unwrapping behavior.
+
+**Net impact:** Narrative error (cosmetic); zero production risk. Fix still correct (catch-all pattern catches everything). This lesson should be preserved for future exception investigations.
+
+### Issue #61 Closed — 3 PRs Merged
+
+- PR #62: Standardize `buildIdOrUrl` parameter (Bug A) ✅
+- PR #64: Centralize MCP exception handling (Bug B) ✅
+- PR #63: Exception coverage audit + tests (baseline) ✅
+
+Both bugs fixed. Follow-up issue #65 filed for: schema test, flatten exceptions, unskip tests, rolling coverage tests, preserve calibration lesson.
+
+### Deferral Calibration Reflection
+
+**What you got right on May 22:**
+- Recognized control-flow refactoring is risky without test evidence
+- Correctly identified precondition ("better exception test coverage")
+- Decision logic was sound
+
+**What you missed:**
+- Should have set a **revisit trigger** (e.g., "if any user report of silent exception behavior → promote immediately")
+- Didn't weight "low-probability but high-impact" findings heavily enough
+- The boilerplate pattern itself masks gaps that surface sooner than Q3
+
+**Calibration for future:** Low-count but high-risk structural findings get a **REVISIT TRIGGER**, not blanket deferral. Revisit trigger: "If any exception goes uncaught in production → promote immediately."
+
+**Cost of deferral was higher than estimated:** Not wrong, but should have checked for production evidence weekly. Ripley/Lambert can help with lightweight weekly checks on deferred findings.
+

@@ -35,3 +35,54 @@ See history-archive.md for detailed history.
 - AggregateException pattern: model Bug B by returning `Task.FromException<T>(new AggregateException(new HttpRequestException("...")))` from the API mock at a `Task.WhenAll` boundary, then assert `McpException` message content after centralization.
 - TaskCanceledException pattern: model timeout/cancellation with `Task.FromException<T>(new TaskCanceledException("..."))`; keep as a skipped contract test until Ripley's centralized handler catches cancellation families.
 - Mocking approach: instantiate real `AzdoMcpTools` with `AzdoService` over an `IAzdoApiClient` NSubstitute mock; assert the MCP tool boundary, not just service-layer exceptions.
+
+---
+
+## 2026-05-25: Issue #61 — Exception Coverage Baseline Audit (PR #63)
+
+**Session:** Issue #61 Silent MCP failures fix  
+**Status:** PR Merged ✅  
+**Task:** Baseline audit of MCP exception handling across 25 tools
+
+### Audit Results
+
+- **Tools audited:** 25
+- **Direct MCP happy-path coverage:** 14/25 (56%)
+- **Direct MCP unhappy-path coverage:** 7/25 (28%)
+- **Worst gaps:** azdo_build_analysis, azdo_build, azdo_helix_jobs, azdo_search_timeline, helix_batch_status
+
+### Tests Written
+
+1. **azdo_build_analysis:** Skipped test for AggregateException (pending #64) ⏸
+2. **azdo_builds:** Active HttpRequestException wrapper test ✅
+3. **azdo_timeline:** Skipped test for TaskCanceledException (pending #64) ⏸
+
+PR #63 MERGED ✅. Skipped tests will be unskipped after PR #64 merges.
+
+### Key Calibration Learning
+
+**Name an exception by exercising it, not by guessing from source-read.**
+
+Ash's investigation identified the right fix (centralize exceptions) but incorrectly named the uncaught exception as "AggregateException from Task.WhenAll." Reality: `await Task.WhenAll` unwraps to the inner exception; only `.Wait()` throws AggregateException. The actual uncaught types were TaskCanceledException and OperationCanceledException.
+
+**Better practice:**
+1. Write 10-line repro
+2. Run it: `catch (Exception ex) { Console.WriteLine(ex.GetType()); }`
+3. Only then name the type
+
+**This is critical for Task.WhenAll, Task.WhenAny, ConfigureAwait.**
+
+**Net impact:** Narrative correction; zero production risk. Your skipped tests will validate the real exception path after #64 merges.
+
+### Issue #61 Closed — 3 PRs Merged
+
+- PR #62 (Ripley): Parameter standardization ✅
+- PR #64 (Ripley): Exception centralization ✅
+- PR #63 (yours): Exception coverage audit ✅
+
+Both bugs fixed. Follow-up issue #65 tracks unskip tests, add companion test for real path, rolling coverage tests, preserve calibration lesson.
+
+### Standing Rule (Your Policy)
+
+Every MCP tool method must have ≥1 test covering the unhappy path (exception → structured error). Baseline now documented (28% floor). Rolling implementation: Week 2–3.
+

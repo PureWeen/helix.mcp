@@ -216,3 +216,50 @@ See **history-archive.md** for detailed notes on:
 - Wire compatibility choice: hard rename, no alias. This follows Dallas's clean schema guidance; no known downstream consumer requiring the old `buildId` MCP JSON key was found, and aliases would preserve parameter drift.
 - Manual repro used local `hlx mcp` stdio: `tools/list` exposed `buildIdOrUrl` for `azdo_build` and `azdo_build_analysis`; `azdo_build` succeeded with a full dnceng-public URL using `buildIdOrUrl`; old `buildId` returned an explicit MCP `isError` response instead of silent null.
 - Captured reusable pattern in `.squad/skills/mcp-param-rename/SKILL.md`: audit the full tool family, make an explicit hard-rename-vs-alias decision, and verify schema/new-call/old-call behavior manually.
+
+---
+
+## 2026-05-25: Issue #61 — Two PRs Merged (Bug A + Bug B)
+
+**Session:** Issue #61 Silent MCP failures fix  
+**Status:** Implementation Complete; both PRs merged ✅  
+**Scope:** PR #62 (parameter standardization) + PR #64 (exception centralization)
+
+### PR #62 — Standardize `buildIdOrUrl` Parameter (Bug A)
+
+- Renamed `buildId` → `buildIdOrUrl` across 9 AzDO tools
+- Low blast radius (parameter schema only)
+- CI green; no regressions
+- MERGED ✅
+
+### PR #64 — Centralize MCP Exception Handling (Bug B)
+
+- Extracted `McpExceptionHandler.WrapServiceException` helper
+- Replaced 16 repetitive catch-when blocks
+- Added TaskCanceledException and OperationCanceledException to known types
+- CI green; no regressions
+- MERGED ✅
+
+### Key Calibration Learning
+
+**Name an exception by exercising it, not by guessing from source-read.**
+
+Ash's investigation identified the right fix (centralize exceptions) but incorrectly named the uncaught exception as "AggregateException from Task.WhenAll." In reality, `await Task.WhenAll` unwraps to the inner exception; only `.Wait()` throws AggregateException. The actual uncaught types were TaskCanceledException and OperationCanceledException (now fixed in PR #64).
+
+**Better practice:**
+1. Write 10-line repro
+2. Run it: `catch (Exception ex) { Console.WriteLine(ex.GetType()); }`
+3. Only then name the type in narrative
+
+**This is critical for Task.WhenAll, Task.WhenAny, ConfigureAwait** — await machinery has non-obvious unwrapping behavior.
+
+**Net impact:** Narrative correction (cosmetic); zero production risk.
+
+### Issue #61 Closed — 3 PRs Merged
+
+- PR #62 (yours): Parameter standardization ✅
+- PR #64 (yours): Exception centralization ✅
+- PR #63 (Lambert): Exception coverage audit + tests ✅
+
+Both bugs fixed. Follow-up issue #65 tracks schema test, flatten exceptions, unskip tests, rolling coverage tests, preserve calibration lesson.
+
