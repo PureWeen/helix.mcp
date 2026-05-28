@@ -198,3 +198,12 @@ This is especially critical for Task.WhenAll, Task.WhenAny, ConfigureAwait — t
 
 Both bugs fixed. Follow-up issue #65 tracks remaining work (schema test, unskip tests, rolling exception coverage, preserve this calibration lesson).
 
+
+## 2026-05-28: Issue #67 Silent MCP Failures Investigation
+
+- Analyzed 4 parameter binding failures in session b11893eb
+- Root cause: Microsoft.Extensions.AI.AIFunctionFactory parameter marshalling failures before tool method invocation
+- Classified as Class A (SDK layer) failures vs Class B (runtime) and Class C (schema drift)
+- Generated comprehensive investigation document with reproduction steps
+- Input to Dallas's CallToolFilters middleware policy decision (resolved in PR #69)
+- Recommended schema audit to prevent future parameter naming confusion (implemented by Lambert in PR #68)

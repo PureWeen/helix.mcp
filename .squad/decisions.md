@@ -1,418 +1,3 @@
-# Decisions
-# MCP Exception Audit — Findings and Recommendations
-# US-31: hlx_search_file Phase 1 Implementation
-# Decision: Status filter refactored from boolean to enum-style string
-# US-32: TRX Parsing Implementation Notes
-# Decision: Status Filter Test Coverage Strategy
-# Decision: Timeline search result types live in Core
-# Decision: Test Quality Review — Tautological Test Findings
-# Dallas decisions inbox — Discoverability review (2026-03-10)
-# MCP SDK v1.0.0 → v1.3.0 Upgrade Research
-# Ripley — MCP SDK 1.3.0 upgrade & CPM migration
-# MCP SDK 1.1.0–1.3.0 Adoptable Features Evaluation
-# Decision: MCP tool annotations + NU1507 cleanup batch (PR #47)
-# Decision: MCP progress notifications via auto-injected `IProgress<T>`
-# Decision: SDK 1.0.0 → 1.3.0 upgrade verdict (Lambert)
-# Decision: Parallel squad work should use separate git worktrees
-# Instead of:
-# ... Ripley works ...
-# ... Ripley works ...
-# Use:
-# Each agent works in isolation
-# Cleanup: git worktree remove /path/to/worktree-N
-# Dependency Audit Recommendations — v0.7.1 vs v0.8.0
-# Decision drop: azdo_auth_status is not sync-safe
-
-> Shared team decisions — the single source of truth for architectural and process choices.
-
-### 2026-05-21: MCP Exception Audit
-
-**Date:** 2026-05-21  
-**Analyst:** Ash (Product Analyst)  
-**Scope:** src/HelixTool.Mcp.Tools/ — all 27 MCP tool methods  
-**Status:** Complete — ready for Ripley implementation
-
----
-
-## Executive Summary
-
-**27 MCP tools audited. Exception handling is EXCELLENT.** Only 1 minor issue identified (helix_ci_guide needs try/catch wrapper). All other 26 tools correctly use McpException pattern.
-
-- **27 total tools:** 10 Helix, 14 AzDO, 1 CiKnowledge
-- **26 tools (96%):** Pre-wrapped, follow McpException pattern ✅
-- **1 tool (4%):** Raw exception propagation ⚠️ **helix_ci_guide**
-- **0 tools:** Implicit uncaught exceptions, swallowed exceptions, or mixed patterns
-
----
-
-## Audit Findings
-
-### Single Issue: helix_ci_guide (CiKnowledgeTool.cs:11–20)
-
-**Current code:**
-```csharp
-[McpServerTool(Name = "helix_ci_guide", Title = "CI Investigation Guide", ...)]
-public string GetGuide(
-    [Description("Repository name; omit for overview")] string? repo = null)
-{
-    if (string.IsNullOrWhiteSpace(repo))
-        return CiKnowledgeService.GetOverview();
-
-    return CiKnowledgeService.GetGuide(repo);  // ⚠️ LINE 19 — NO TRY/CATCH
-}
-```
-
-**Problem:**
-- CiKnowledgeService.GetGuide(repo) can throw ArgumentException or other exceptions
-- No try/catch wrapper → raw exceptions bubble to JSON-RPC layer
-- LLM agents see stack traces instead of actionable error messages
-
-**Recommended fix:**
-```csharp
-try
-{
-    if (string.IsNullOrWhiteSpace(repo))
-        return CiKnowledgeService.GetOverview();
-
-    return CiKnowledgeService.GetGuide(repo);
-}
-catch (Exception ex)
-{
-    throw new McpException($"Failed to get CI guidance: {ex.Message}", ex);
-}
-```
-
-**Effort:** Trivial (5-line change, add try/catch wrapper)
-
-**User-facing impact:** Low (CiKnowledgeTool is informational, not critical path), but should still be fixed for consistency with other 26 tools.
-
----
-
-## Pattern Analysis: What's Working Well
-
-### Pattern 1: Broad Exception Catch (Most Common)
-Used in 20+ tools (helix_status, helix_logs, helix_files, helix_download, helix_find_files, helix_work_item, helix_search, helix_parse_uploaded_trx, helix_batch_status, azdo_builds, azdo_timeline, azdo_log, azdo_changes, azdo_test_runs, azdo_test_results, azdo_artifacts, azdo_search_log, azdo_search_timeline, azdo_test_attachments, etc.)
-
-```csharp
-try
-{
-    var result = await _svc.SomeOperationAsync(...);
-    return result;
-}
-catch (Exception ex) when (ex is HttpRequestException or HelixException or RestApiException or InvalidOperationException or ArgumentException)
-{
-    throw new McpException($"Failed to {action}: {ex.Message}", ex);
-}
-```
-
-**Strengths:**
-- ✅ Catches all expected service-layer exceptions
-- ✅ Re-throws as McpException with actionable message
-- ✅ Preserves original exception as InnerException for debugging
-- ✅ Consistent across all tools
-
-### Pattern 2: Context-Specific Error Detection (3 tools)
-Used in azdo_build, azdo_helix_jobs, azdo_build_analysis
-
-```csharp
-try
-{
-    return await _svc.GetItemAsync(id);
-}
-catch (InvalidOperationException ex) when (ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase))
-{
-    throw new McpException(AppendNotFoundHint(ex.Message, id), ex);
-}
-catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or ArgumentException)
-{
-    throw new McpException($"Failed to {action}: {ex.Message}", ex);
-}
-```
-
-**Strengths:**
-- ✅ Detects semantic error condition ("not found")
-- ✅ Appends contextual hints (auth suggestions, URL format guidance)
-- ✅ Falls through to broad catch for other InvalidOperationException instances
-- ✅ User-facing message is actionable: "Build not found in org/project. This org may require auth..."
-
-### Pattern 3: Pre-Call Parameter Validation (All tools)
-Used in all 27 tools before calling service layer
-
-```csharp
-if (string.IsNullOrEmpty(requiredParam))
-    throw new McpException("Parameter 'requiredParam' is required.");
-
-if (!filter.Equals("failed", StringComparison.OrdinalIgnoreCase) && ...)
-    throw new McpException($"Invalid filter '{filter}'. Must be 'failed', 'passed', or 'all'.");
-```
-
-**Strengths:**
-- ✅ Validates parameters before service calls
-- ✅ Clear, actionable error messages listing valid values
-- ✅ No ArgumentException leak from service layer
-
-### Pattern 4: Config Guard Checks (8 tools)
-Used in helix_search, helix_parse_uploaded_trx, azdo_search_log
-
-```csharp
-if (StringHelpers.IsFileSearchDisabled)
-    throw new McpException("File content search is disabled by configuration.");
-```
-
-**Strengths:**
-- ✅ Configuration failures surfaced as McpException
-- ✅ No InvalidOperationException leak
-- ✅ Clear user message
-
-### Pattern 5: No-Op Methods (2 tools)
-Used in helix_auth_status, azdo_auth_status
-
-```csharp
-public HelixAuthStatus HelixAuth()
-{
-    var token = _tokenAccessor.GetAccessToken();
-    var hasToken = !string.IsNullOrEmpty(token);
-    
-    // ... compute state ...
-    
-    return new HelixAuthStatus { IsAuthenticated = hasToken, Source = source };
-}
-```
-
-**Rationale:**
-- ✅ Synchronous, no I/O or parsing
-- ✅ Only accesses in-memory token accessor state
-- ✅ No exception wrapping needed (correctly identified)
-- ⚠️ Note: azdo_auth_status is currently async but does no I/O; consider making it sync
-
----
-
-## Recommended McpException Pattern for Ripley
-
-When implementing the helix_ci_guide fix or writing new tools, use these patterns:
-
-### Template 1: Simple Service Call
-```csharp
-[McpServerTool(Name = "your_tool", ...)]
-public async Task<YourResult> YourMethod(string param)
-{
-    if (string.IsNullOrEmpty(param))
-        throw new McpException("Parameter 'param' is required.");
-    
-    try
-    {
-        var result = await _service.GetDataAsync(param);
-        return new YourResult { /* ... */ };
-    }
-    catch (Exception ex) when (ex is HttpRequestException or ServiceException or InvalidOperationException or ArgumentException)
-    {
-        throw new McpException($"Failed to get data: {ex.Message}", ex);
-    }
-}
-```
-
-### Template 2: Context-Specific Error + Broad Fallback
-```csharp
-try
-{
-    return await _service.GetItemAsync(id);
-}
-catch (InvalidOperationException ex) when (ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase))
-{
-    // Add actionable context
-    throw new McpException($"{ex.Message} Try using azdo_builds with org='dnceng' for internal builds.", ex);
-}
-catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or ArgumentException)
-{
-    throw new McpException($"Failed to get item: {ex.Message}", ex);
-}
-```
-
-### Template 3: Synchronous No-Op
-```csharp
-public AuthStatusResult AuthStatus()
-{
-    // No try/catch needed — no I/O or parsing
-    var token = _tokenAccessor.GetAccessToken();
-    return new AuthStatusResult { IsAuthenticated = !string.IsNullOrEmpty(token) };
-}
-```
-
----
-
-## Error Message Guidelines
-
-Follow BinlogMcp's established pattern (from decisions.md):
-
-**Format:**
-```
-"Failed to {action}: {ex.Message} [optional: contextual hint]"
-```
-
-**Examples:**
-
-✅ **Good:**
-- "Failed to get build status: Build not found in dnceng-public/public. If this is an internal build, use org='dnceng' and project='internal' (requires auth via 'az login' or AZDO_TOKEN)."
-- "Failed to download files: No files matching '*.binlog' found."
-- "Failed to search: File content search is disabled by configuration."
-- "Work item name is required. Provide it as a separate parameter or include it in the Helix URL."
-
-❌ **Bad:**
-- "An error occurred." (too vague)
-- "System.NullReferenceException: Object reference not set to an instance of an object." (exposes internals)
-- "Failed to get CI guidance." (no context about what went wrong)
-
----
-
-## Cross-Check: BinlogMcp Pattern Alignment
-
-From .squad/decisions.md (2026-03-13):
-> "Use `McpException` for tool-surface failures and keep JSON property names/wire format stable even when internal C# type names change."
-
-**HelixTool.Mcp.Tools compliance:**
-- ✅ Tool-level errors (missing work item, no files, build not found) → McpException
-- ✅ Parameter validation (invalid filter) → McpException with valid enum values listed
-- ✅ Config failures (file search disabled) → McpException
-- ✅ Service layer exceptions (HttpRequestException, HelixException) → wrapped as McpException
-- ✅ No raw .NET exceptions escape to JSON-RPC (except helix_ci_guide)
-- ✅ JSON property names stable (CamelCase in McpToolResults.cs, independent of C# class names)
-
----
-
-## Summary of Action Items
-
-### For Ripley (Implementation)
-
-**Task 1: Fix helix_ci_guide**
-- File: src/HelixTool.Mcp.Tools/CiKnowledgeTool.cs
-- Lines: 11–20
-- Change: Wrap GetGuide() call in try/catch → throw McpException
-- Effort: Trivial (5 lines)
-- Priority: P2 (low user impact, but maintains consistency)
-
-### For Dallas (Architecture Review)
-
-**Decision 1: helix_ci_guide error strategy**
-- Should CiKnowledgeService validate repo names before lookup, or rely on wrapper catch-all?
-- **Recommendation:** Do both — validate in service (fail fast) + wrap in tool (belt & suspenders)
-
-**Decision 2: azdo_auth_status async-ness**
-- Currently async but does no I/O. Should it be made synchronous?
-- **Recommendation:** Yes, make synchronous (simpler, clearer intent)
-
-**Decision 3: Future structured error codes**
-- All tools currently use `ex.Message` only. Should we add error codes (e.g., "BUILD_NOT_FOUND") for LLM agent routing?
-- **Recommendation:** P2 feature — improve error categorization later if agent routing becomes complex
-
-### For Lambert (Testing)
-
-**Test impact:** Existing test coverage already validates exception wrapping on all 26 tools. After Ripley's fix, add test case for helix_ci_guide exception wrapping (test that invalid repo name throws McpException, not raw ArgumentException).
-
----
-
-## Skill Extraction: MCP Exception Audit Methodology
-
-**Reusable process for auditing any MCP tool set:**
-
-1. **Enumerate all tools** using grep `[McpServerTool` decorator
-2. **Classify exception posture** by walking each method body:
-   - Parameter validation (pre-call) → McpException
-   - Service/I/O calls (try/catch) → wrapped or raw propagation
-   - Config guards → McpException or error object
-   - Return paths → exceptions or success results
-3. **Categorize by pattern:**
-   - **A:** Pre-wrapped (has try/catch → McpException)
-   - **B:** Raw throw (no try/catch, raw exceptions propagate)
-   - **C:** Implicit (no explicit throw, but calls can fail uncaught)
-   - **D:** Swallowed (caught and returned as error object, not thrown)
-   - **E:** Mixed (multiple strategies in same method)
-4. **Score by user impact × ease of fix:**
-   - User-facing visibility: How does end user see the exception?
-   - Fix complexity: Trivial (add wrapper), Moderate (add validation), Complex (refactor service layer)
-   - I/O-bound vs logic: Network/file I/O has broader exception surface
-5. **Recommend by effort, not by tool:**
-   - Group fixes by effort level (Trivial, Moderate, Complex)
-   - Enables parallelized implementation
-
-**Output:** Inventory table (tool name, file:line, posture, exception types, fix complexity) + summary by effort band.
-
----
-
-## Appendix: Full Tool Inventory
-
-**27 Tools Total:**
-
-**Helix Tools (10):**
-1. helix_status — Pre-wrapped ✅
-2. helix_logs — Pre-wrapped ✅
-3. helix_files — Pre-wrapped ✅
-4. helix_download — Pre-wrapped ✅
-5. helix_find_files — Pre-wrapped ✅
-6. helix_work_item — Pre-wrapped ✅
-7. helix_search — Pre-wrapped ✅
-8. helix_parse_uploaded_trx — Pre-wrapped ✅
-9. helix_batch_status — Pre-wrapped ✅
-10. helix_auth_status — No wrapping needed (synchronous, no I/O) ✅
-
-**AzDO Tools (14):**
-11. azdo_build — Pre-wrapped with context-specific handling ✅
-12. azdo_builds — Pre-wrapped ✅
-13. azdo_timeline — Pre-wrapped ✅
-14. azdo_log — Pre-wrapped ✅
-15. azdo_changes — Pre-wrapped ✅
-16. azdo_test_runs — Pre-wrapped ✅
-17. azdo_test_results — Pre-wrapped ✅
-18. azdo_artifacts — Pre-wrapped ✅
-19. azdo_search_log — Pre-wrapped ✅
-20. azdo_search_timeline — Pre-wrapped ✅
-21. azdo_test_attachments — Pre-wrapped ✅
-22. azdo_helix_jobs — Pre-wrapped with context-specific handling ✅
-23. azdo_build_analysis — Pre-wrapped with context-specific handling ✅
-24. azdo_auth_status — No wrapping needed (synchronous, no API call) ✅
-
-**CI Knowledge Tool (1):**
-25. helix_ci_guide — **Raw exceptions propagate** ⚠️ **Needs fix**
-
----
-
-**Status:** Ready for Ripley to implement helix_ci_guide fix. All other tools verified and approved.
-
-### 2026-05-21: HelixTool RollForward Policy
-
-- Use `<RollForward>Major</RollForward>` in `src/HelixTool/HelixTool.csproj`.
-- **Not chosen:** `LatestMajor`, because we want conservative behavior that prefers the exact target runtime when it is installed and only moves to the lowest higher major when the target major is missing.
-- **Rationale:** `hlx` is shipped as a global `dotnet tool`, so its generated runtimeconfig controls whether the executable starts on machines that only have a newer shared framework installed. `Major` allows `net10.0` to run on .NET 11+ when .NET 10 is absent, avoiding startup failures for both the CLI and `hlx mcp serve`.
-- **Scope:** This applies only to the executable project `HelixTool`. Library projects do not produce the tool runtimeconfig and should not be changed for this policy.
-
-
-**By:** Ripley
-
-**By:** Ripley
-
-**By:** Ripley  
-
-**By:** Lambert (Tester)
-
-**By:** Ripley
-
-
-1. **Do not add a new composite failure-investigation tool in this increment.**
-   Improve discoverability through existing surfaces: MCP tool descriptions, fallback/error messages, `helix_ci_guide`, README, and llmstxt/help output.
-
-2. **Make `helix_ci_guide(repo)` the recommended repo-specific entry point for workflow selection.**
-   Tool descriptions and failure messages should direct agents there when pattern choice or result-location expectations vary by repo.
-
-3. **Clarify the behavioral contract of `helix_test_results`.**
-   It should be described as structured Helix-hosted test-result parsing with existing fallback support, but not as the universal first choice across repos. Failure guidance must route callers to the correct next tool sequence.
-
-4. **Clarify the behavioral contract of `helix_search_log`.**
-   It should be positioned as the preferred remote-first console-log search path, with explicit note that search patterns vary by repo/test runner.
-
-5. **Keep discoverability surfaces synchronized.**
-   MCP descriptions, README, llmstxt/help output, and CI-guide wording must align on when to use `helix_test_results`, when to pivot to AzDO structured results, and when to use `helix_search_log`.
-
-
-**Requested by:** Larry Ewing  
 **Date:** 2026-05-15  
 **Status:** Complete research; recommending upgrade  
 **Priority:** P1 (Medium) — reliability + future-proofing, low risk  
@@ -1431,3 +1016,947 @@ Codebase is lean (28,813 LOC) but shows targeted slop worth fixing:
 
 ---
 
+
+---
+
+# 2026-05-28: Session Decisions Archive
+
+## Investigation: Silent MCP Failures Post-v0.7.4
+
+# Investigation: Silent MCP Failures Post-v0.7.4 (Session b11893eb, 2026-05-28)
+
+**Status:** Analysis Complete with Full Repro  
+**Date:** 2026-05-28  
+**Investigator:** Ash (Product Analyst)  
+**Verification Method:** Local v0.7.4 build, reproduced all 4 failures, captured stderr + MCP responses  
+**Related Issues:** #61 (PR #64 centralization), #65 (follow-up work)
+
+---
+
+## Executive Summary
+
+**CRITICAL FINDING:** All four silent MCP failures are **SDK Parameter Binding Errors (Class A)** thrown by `Microsoft.Extensions.AI.AIFunctionFactory` *before* tool methods are invoked. The MCP Server logs the real exception to stderr but the error response formatter replaces it with a generic "An error occurred invoking 'X'" message.
+
+**Root cause architecture:**
+1. MCP SDK's reflection layer validates parameters against method signature
+2. If binding fails (missing/wrong param name), throws `ArgumentException`
+3. MCP Server catches unhandled exception, logs it to stderr via ILogger
+4. Error response handler substitutes generic message (original exception lost in transport)
+5. `McpExceptionHandler` never invoked (tool method never called)
+
+**This is NOT a gap in PR #64's `McpExceptionHandler` centralization.** It's an upstream layer problem in the MCP SDK's error response formatting.
+
+---
+
+## Per-Tool Reproduction & Root Causes
+
+### 1. `helix_status` with `{"buildIdOrUrl": 1438863}`
+
+**Stderr Exception (Verified):**
+```
+System.ArgumentException: The arguments dictionary is missing a value 
+for the required parameter 'jobId'. (Parameter 'arguments')
+   at Microsoft.Shared.Diagnostics.Throw.ArgumentException(...)
+   at Microsoft.Extensions.AI.AIFunctionFactory.ReflectionAIFunctionDescriptor
+      .<>c__DisplayClass40_0.<GetParameterMarshaller>b__3(...)
+```
+
+**MCP Response (Verified):**
+```json
+{"isError": true, "content": [{"type":"text","text":"An error occurred invoking 'helix_status'."}]}
+```
+
+**Root Cause:** **Class A — SDK Parameter Binding Error**
+- Parameter `buildIdOrUrl` doesn't exist on `helix_status`
+- Method signature requires `jobId` (not `buildIdOrUrl` — that's AzDO naming)
+- AIFunctionFactory reflection binding fails before method invocation
+- Agent mistakenly used AzDO parameter name for Helix tool
+
+---
+
+### 2. `helix_search` with `{"buildIdOrUrl": "1438863", "pattern": "...", "workItemPattern": ".*"}`
+
+**Stderr Exception (Verified):**
+```
+System.ArgumentException: The arguments dictionary is missing a value 
+for the required parameter 'jobId'. (Parameter 'arguments')
+   at Microsoft.Shared.Diagnostics.Throw.ArgumentException(...)
+```
+
+**MCP Response (Verified):**
+```json
+{"isError": true, "content": [{"type":"text","text":"An error occurred invoking 'helix_search'."}]}
+```
+
+**Root Cause:** **Class A — SDK Parameter Binding Error**
+- Parameter `buildIdOrUrl` doesn't exist on `helix_search`
+- Parameter `workItemPattern` doesn't exist (method expects `workItem`)
+- Agent conflated AzDO and Helix parameter naming conventions
+- Binding fails on first missing param (`jobId`)
+
+---
+
+### 3. `azdo_search_timeline` with `{"buildIdOrUrl": "1438863", "jobNameRegex": "WasmBuildTests", "results": "failed"}`
+
+**Stderr Exception (Verified):**
+```
+System.ArgumentException: The arguments dictionary is missing a value 
+for the required parameter 'pattern'. (Parameter 'arguments')
+   at Microsoft.Shared.Diagnostics.Throw.ArgumentException(...)
+```
+
+**MCP Response (Verified):**
+```json
+{"isError": true, "content": [{"type":"text","text":"An error occurred invoking 'azdo_search_timeline'."}]}
+```
+
+**Root Cause:** **Class A — SDK Parameter Binding Error**
+- Parameter `jobNameRegex` doesn't exist (method expects `pattern`)
+- Parameter `results` doesn't exist (method expects `resultFilter`)
+- Agent used non-existent parameter names
+- Binding fails on first missing param (`pattern`)
+
+---
+
+### 4. `azdo_build_analysis` with `{"prNumber": 128648}`
+
+**Stderr Exception (Verified):**
+```
+System.ArgumentException: The arguments dictionary is missing a value 
+for the required parameter 'buildIdOrUrl'. (Parameter 'arguments')
+   at Microsoft.Shared.Diagnostics.Throw.ArgumentException(...)
+```
+
+**MCP Response (Verified):**
+```json
+{"isError": true, "content": [{"type":"text","text":"An error occurred invoking 'azdo_build_analysis'."}]}
+```
+
+**Root Cause:** **Class A — SDK Parameter Binding Error**
+- Parameter `prNumber` doesn't exist (method requires `buildIdOrUrl`)
+- Tool expects build identifier, agent provided PR number
+- Binding fails immediately
+
+---
+
+## Verified Failure Classification
+
+| Tool | Failure Class | Thrown By | Exception Type | McpExceptionHandler Reached? |
+|------|---------------|-----------|---|---|
+| helix_status | **Class A** | AIFunctionFactory.ReflectionAIFunction | ArgumentException | ❌ No (method never invoked) |
+| helix_search | **Class A** | AIFunctionFactory.ReflectionAIFunction | ArgumentException | ❌ No (method never invoked) |
+| azdo_search_timeline | **Class A** | AIFunctionFactory.ReflectionAIFunction | ArgumentException | ❌ No (method never invoked) |
+| azdo_build_analysis | **Class A** | AIFunctionFactory.ReflectionAIFunction | ArgumentException | ❌ No (method never invoked) |
+
+**100% of observed failures = Class A (SDK parameter binding).**
+
+---
+
+## Why PR #64's McpExceptionHandler Cannot Help
+
+```
+Request Flow:
+  MCP Client
+    ↓
+  MCP Server (ModelContextProtocol.Server)
+    ↓
+  AIFunctionFactory.ReflectionAIFunction.InvokeAsync()
+    ├─ [POINT A] Parameter Binding ← ❌ FAILS HERE (ArgumentException thrown)
+    ├─ Exception caught by MCP Server
+    ├─ Logged to ILogger (stderr)
+    └─ Generic error response returned
+    ↓
+  MCP Error Response Formatter
+    ├─ Receives exception
+    ├─ Formats as: "An error occurred invoking '{toolName}'."
+    └─ Sends to client (original exception lost)
+    
+  Tool Method Body (never reached)
+    ├─ McpExceptionHandler.RunServiceCallAsync() ← ✅ Would catch here, but never invoked
+    └─ ...
+```
+
+**The gap:** McpExceptionHandler lives inside the tool method body. Parameter binding happens in the MCP SDK *before* the method is called. This is a **structural limitation of the MCP SDK architecture**, not a coverage gap in our exception handling.
+
+---
+
+## Three Classes of MCP Failures (Complete Taxonomy)
+
+### Class A: SDK Parameter Binding Error (This Investigation)
+- **When:** Parameter names don't match method signature
+- **Who throws:** `Microsoft.Extensions.AI.AIFunctionFactory.ReflectionAIFunction`
+- **When thrown:** Before tool method invocation, during reflection-based parameter marshalling
+- **Where caught:** MCP Server's unhandled-exception handler
+- **Observable:** Real exception logged to stderr; generic message in MCP response
+- **Handler coverage:** ❌ McpExceptionHandler never reached (method not invoked)
+- **Count in b11893eb:** 4/4 (100%)
+- **Examples:** Missing parameter, wrong parameter name, wrong type
+
+### Class B: Runtime Exception Within Tool Method (PR #64 Fixed)
+- **When:** Exception thrown during method execution
+- **Who throws:** Service layer, API client, or application code
+- **When thrown:** After method invocation, inside method body
+- **Where caught:** `McpExceptionHandler.RunServiceCallAsync/RunServiceCall`
+- **Observable:** Structured error message with context, e.g., "Failed to search timeline: HttpRequestException"
+- **Handler coverage:** ✅ Covered by PR #64
+- **Examples:** HttpRequestException, TaskCanceledException, ArgumentException from business logic
+- **Tests:** AzdoMcpExceptionCoverageTests.cs (2 tests currently skipped; planned to unskip in #65)
+
+### Class C: Schema Drift (Root Cause of Class A)
+- **When:** Tool schema exposed to agent differs from actual method signature
+- **Who causes:** Outdated schema, cached agent knowledge, parameter renames not reflected in published schema
+- **Observable consequence:** Class A failures (parameter binding errors)
+- **Root cause chain:** Schema drift → Agent uses wrong param name → Class A error
+- **Examples:** Agent used `buildId` (renamed to `buildIdOrUrl` in PR #62), or `jobId` not documented in schema
+
+---
+
+## Architectural Analysis: Why MCP Response Is Generic
+
+The MCP Server's error handling chain:
+
+```csharp
+// In ModelContextProtocol.Server.McpServer (external library)
+try {
+    var result = await tool.InvokeAsync(arguments, cancellationToken);
+    return success result;
+} catch (Exception ex) {
+    logger.LogError("'{toolName}' threw an unhandled exception.", toolName);
+    logger.LogError(ex, "Exception details");  // ← FULL EXCEPTION LOGGED HERE
+    
+    // But response formatter only uses generic message:
+    return new TextContent {
+        Text = $"An error occurred invoking '{toolName}'."  // ← NO EXCEPTION DETAIL
+    };
+}
+```
+
+**Result:** Real exception is in stderr logs, but client receives only generic message.
+
+---
+
+## Available Fixes (Ranked by Feasibility)
+
+### Fix Option 1: Per-Tool Input Validation Prologue (Quick, Local)
+**Difficulty:** LOW | **Time:** 1-2 hours | **Scope:** Localized
+
+Add manual parameter checking before invoking service call:
+
+```csharp
+[McpServerTool(...)]
+public async Task<StatusResult> Status(string jobId, string filter = "failed")
+{
+    // Catch missing params with custom exception that's already handled
+    if (string.IsNullOrEmpty(jobId))
+        throw new McpException("jobId parameter is required.");
+    
+    return await McpExceptionHandler.RunServiceCallAsync(
+        () => _svc.GetJobStatusAsync(jobId),
+        "get job status");
+}
+```
+
+**Pros:**
+- Works immediately for all tools
+- Error message reaches client correctly (thrown before binding)
+- Per-tool control
+
+**Cons:**
+- Repetitive code across 25 tools
+- Doesn't scale for new tools
+- Doesn't fix schema-drift root cause
+
+### Fix Option 2: Custom MCP Server Middleware (Better, Reusable)
+**Difficulty:** MEDIUM | **Time:** 4-6 hours | **Scope:** Centralized
+
+Create custom middleware that intercepts exceptions and includes message in response:
+
+```csharp
+// In Program.cs during MCP server setup
+builder.Services
+    .AddMcpServer(options => { ... })
+    .With ErrorHandlingMiddleware(ex => {
+        // Override generic message with real exception message
+        return new TextContent {
+            Text = $"An error occurred invoking '...': {ex.Message}"
+        };
+    })
+```
+
+**Pros:**
+- Single implementation for all 25 tools
+- Error message reaches client
+- Scales automatically for new tools
+
+**Cons:**
+- Requires understanding of MCP Server internals
+- May not be possible if error handler is not middleware-friendly
+
+### Fix Option 3: Upstream PR to ModelContextProtocol SDK (Best, But Slow)
+**Difficulty:** HIGH (upstream) | **Time:** 1-2 weeks review | **Scope:** SDK-level
+
+Propose PR to ModelContextProtocol SDK:
+- Capture inner exception message in error response
+- Include in formatted error: `"An error occurred invoking 'X': {ex.Message}"`
+
+**Pros:**
+- Fixes all MCP tools using this SDK
+- Upstream solution, benefits entire ecosystem
+
+**Cons:**
+- Requires upstream maintainer review
+- Doesn't help v0.7.4 users immediately
+- Low priority for SDK maintainers (rare issue)
+
+---
+
+## Relationship to Issue #65 Follow-Ups
+
+| #65 Follow-Up | Intersection | Status |
+|---|---|---|
+| **Schema test** | 🔴 CRITICAL | Root cause: schemas don't validate against actual method signatures. Add CI check: fail if generated schema doesn't match code. |
+| **Unskip exception tests** | 🟢 OK | Tests verify runtime exceptions (Class B), not parameter binding (Class A). Can proceed independently. |
+| **Rolling coverage** | 🟢 OK | Parameter binding is external layer, not part of exception coverage audit. Separate concern. |
+| **Calibration lesson** | 🟢 Added | Document Class A pattern: "Parameter binding errors occur in SDK layer before handler is reached." |
+
+---
+
+## Filing Recommendation
+
+### Issue to File: "MCP SDK Parameter Binding Errors Suppress Real Exception Messages"
+
+**Title:** MCP error responses suppress parameter binding exception details  
+**Labels:** bug, mcp, tooling, high-priority  
+**Blocked on:** None
+
+**Body:**
+
+```markdown
+## Problem
+
+When MCP tool parameters fail to bind (missing parameter, wrong type, etc.), 
+the MCP client receives a generic "An error occurred invoking 'X'." message. 
+The real exception is logged to stderr but is lost from the error response.
+
+This makes debugging difficult — agents can't diagnose parameter mismatches 
+without access to server logs.
+
+## Root Cause
+
+Microsoft.Extensions.AI.AIFunctionFactory performs reflection-based parameter 
+binding *before* the tool method is invoked. If binding fails, it throws 
+ArgumentException. 
+
+The MCP Server catches this unhandled exception, logs it to stderr via ILogger, 
+but the error response formatter uses a generic message template instead of 
+including the exception message.
+
+## Reproduction
+
+Call `helix_status` with wrong parameter name:
+```bash
+{"jsonrpc":"2.0","id":1,"method":"tools/call",
+ "params":{"name":"helix_status","arguments":{"buildIdOrUrl":1438863}}}
+```
+
+Expected (according to tool spec): parameter `jobId` required, not `buildIdOrUrl`
+
+Actual stderr:
+```
+ArgumentException: The arguments dictionary is missing a value 
+for the required parameter 'jobId'. (Parameter 'arguments')
+```
+
+Actual client response:
+```json
+{"isError":true,"content":[{"type":"text","text":"An error occurred invoking 'helix_status'."}]}
+```
+
+## Impact
+
+4 tools in session b11893eb (helix_status, helix_search, azdo_search_timeline, 
+azdo_build_analysis) failed silently, forcing agents to retry without actionable 
+error details.
+
+## Scope
+
+- [ ] Capture AIFunctionFactory exceptions before generic formatting
+- [ ] Include exception message in error response: `"An error occurred invoking 'X': {message}"`
+- [ ] Test with wrong parameter names and types
+- [ ] Document parameter binding error class in MCP error handling strategy
+
+## Related
+
+- PR #64 (centralized exception handling for Class B errors)
+- Issue #65 (exception handling follow-ups)
+```
+
+**Severity:** HIGH (silent failures degrade debugging experience)
+
+**Assignment:** Ripley (implementation), Dallas (design decision on fix option)
+
+---
+
+## Recommended Next Steps
+
+1. **Immediate (Today):** Dallas reviews this finding. Choose Fix Option 1, 2, or 3.
+   - Option 1 (prologue validation): Ripley implements in PR#67, ships in v0.7.5
+   - Option 2 (middleware): Requires more investigation; Ripley scopes feasibility
+   - Option 3 (upstream): File low-priority upstream; ship Option 1 as interim
+
+2. **Short-term:** Add schema validation test (part of #65) to prevent future Class A failures
+
+3. **Long-term:** Consider MCP SDK upgrade if parameter binding error handling improves
+
+---
+
+## Learnings — MCP Error Handling Stack
+
+**Key insight:** MCP tool errors flow through three distinct layers:
+
+1. **SDK Layer (Parameter Binding)** — Microsoft.Extensions.AI.AIFunctionFactory
+   - Validates parameters during reflection-based marshalling
+   - Throws ArgumentException if binding fails
+   - Caught by MCP Server, logged, but error message lost in generic response
+
+2. **MCP Server Layer (Error Formatting)** — ModelContextProtocol.Server
+   - Catches unhandled exceptions
+   - Logs full exception via ILogger
+   - Formats error response with generic message
+
+3. **Application Layer (Runtime Exception Handling)** — Our code (PR #64)
+   - McpExceptionHandler catches exceptions thrown inside tool method
+   - Wraps with structured error message
+   - Produces actionable error text
+
+**For future investigations:** Distinguish which layer the error originates in. Class A (SDK layer) requires middleware or upstream fix; Class B (app layer) is fixed by PR #64.
+
+---
+
+## Conclusion
+
+**All four observed silent failures are SDK parameter binding errors (Class A)**, not gaps in PR #64. The real exceptions are logged to stderr but suppressed from the MCP response by the SDK's generic error formatter.
+
+**This is a distinct architectural layer from runtime exception handling** and requires a different fix approach (middleware or upstream SDK change).
+
+**Recommended action:** File issue recommending Fix Option 1 (per-tool validation prologue) for v0.7.5, while exploring Options 2 & 3 for future versions.
+
+
+---
+
+## Policy Decision: MCP Exception Surfacing via CallToolFilters
+
+# Policy Decision: Surface MCP Failures via `McpException` Everywhere It Matters
+
+**Date:** 2026-05-28  
+**Decision Owner:** Dallas (Lead)  
+**Related:** Ash's investigation (b11893eb, `ash-silent-mcp-failures-post-v0.7.4-2026-05-28.md`), PR #64, Issues #61, #65
+
+---
+
+## Executive Summary (Revised 2026-05-28, 13:30Z)
+
+All four observed silent MCP failures are **Class A: SDK Parameter Binding Errors**—thrown by `Microsoft.Extensions.AI.AIFunctionFactory` *before* the tool method is invoked. The MCP SDK deliberately suppresses inner exception messages as a security boundary. Ash discovered a clean middleware solution: `CallToolFilters` pipeline can intercept `ArgumentException` from SDK binding and convert to `McpException` *centrally* — one filter handles all 25 tools, ~10 LOC in `Program.cs`. Validation prologues now only needed for cross-parameter combo rules (narrow scope), not for SDK binding errors.
+
+---
+
+## Decision Verdicts
+
+### Q1: Argument-Validation Prologue Pattern
+
+**UPDATED FINDING (2026-05-28, 13:30Z):** Ash discovered that the MCP SDK exposes `McpServerOptions.Filters.Request.CallToolFilters` middleware pipeline. A single filter registered at startup can intercept `ArgumentException` from SDK parameter binding and convert it to `McpException` for ALL 25 tools centrally.
+
+**Revised Verdict: ADOPT CallToolFilters middleware (PRIMARY) + narrow prologues (OPTIONAL, combo-rules only)**
+
+**Primary Solution — CallToolFilters Middleware (All Tools):**
+
+Implement one filter in `Program.cs` (~10 LOC):
+
+```csharp
+options.Filters.Request.CallToolFilters.Add(next => async (request, ct) =>
+{
+    try { return await next(request, ct); }
+    catch (ArgumentException ex)
+    {
+        throw new McpException(
+            $"Parameter binding error for '{request.Params?.Name}': {ex.Message}", ex);
+    }
+});
+```
+
+**Outcome:** SDK's parameter binding errors (missing param, wrong name, type mismatch) now surface as `McpException` with the actual error message. No per-tool changes needed. Works for all 25 tools immediately.
+
+**Optional Secondary — Per-Tool Prologue (Narrow Scope):**
+
+Add validation prologues ONLY for cross-parameter combo rules that the SDK can't see:
+- "Exactly one of `jobId` or `buildIdOrUrl` is required" (not applicable here; each tool has own params)
+- "If parameter A is set, parameter B must also be set"
+- Named presets that aren't SDK-enforced (e.g., filter enums that SDK binder doesn't validate)
+
+**Estimated scope:** ~2–4 tools max (very narrow, case-by-case).
+
+**Owner:** Ripley (callToolFilters filter in Program.cs), optional follow-up for combo-rule tools (decision on per-tool prologues deferred after filter ships)  
+**Timeframe:** ~1–2 hours for filter  
+**Precondition:** None (filter is standalone, doesn't block on schema audit)
+
+---
+
+**Why this changes everything:**
+- ✅ Central solution (1 filter, not 8–12 per-tool changes)
+- ✅ Covers SDK binding errors for all tools automatically
+- ✅ No per-tool boilerplate or code duplication
+- ✅ Respects SDK's security boundary (filters are designed for this)
+- ✅ Clear ownership of error surfacing (filters handle binding, McpExceptionHandler handles runtime)
+- ❌ Upstream SDK PR no longer needed (filter is local solution)
+
+---
+
+### Q2: Tool Schema Audit — Declare Required Params Correctly
+
+**Verdict: AUDIT** — Now SUPPORTING (not blocking). With callToolFilters handling SDK errors centrally, schema audit becomes about **prevention** (better schemas = agents guess less) rather than **emergency response** (need prologue workarounds).
+
+**Scope:**
+- Verify all `[McpServerTool]` methods have `[Description]` on every parameter (especially required ones)
+- Verify required parameters are not optional (no `?` or `= default`)
+- Verify `tools/list` schema sets `"required": ["jobId"]` for actual required params
+- Check for naming drift across tools (e.g., `buildIdOrUrl` on AzDO tools but `jobId` on Helix tools)
+- Verify filter-preset enums match the preset values actually documented in param `[Description]`
+
+**Deliverable:** `.squad/audits/tool-schema-audit-2026-05.md` with:
+- Per-tool checklist (parameter presence, description quality, required vs optional)
+- Identified drift (parameter naming inconsistencies)
+- Recommended renames (if any) or aliases (if renames too risky)
+- Top-3 high-impact schema improvements
+
+**Owner:** Lambert or Ash (parallel work, independent of filter)  
+**Timeframe:** 1–2 weeks (not blocking)  
+**Why still valuable:** Better schemas prevent agents from mis-guessing in the first place. Filter is the safety net; schema is the prevention.
+
+---
+
+### Q3: McpExceptionHandler — Wrap More Exception Types?
+
+**Verdict: DONE** — No additional types needed.
+
+**Rationale:**
+- Current list (per line 67 of `McpExceptionHandler.cs`): `InvalidOperationException`, `HttpRequestException`, `ArgumentException`, `TaskCanceledException`, `OperationCanceledException`
+- This covers the standard control/async boundary exceptions
+- **Class A failures (parameter binding) are not caught by this handler** — they happen before method invocation, not a handler improvement
+- **Class B failures (runtime)** are well-covered: HttpRequestException (network), TaskCanceledException/OperationCanceledException (async timeouts), ArgumentException (business logic validation), InvalidOperationException (state errors)
+- No evidence of uncaught exception types in production (Ash's session b11893eb didn't find any Class B exceptions that were mis-typed)
+
+**No action required.** The handler is appropriately scoped to its layer (tool method body, not SDK layer).
+
+---
+
+### Q4: Param Naming Drift — `jobId` vs `buildIdOrUrl`
+
+**Verdict: (c) Accept the drift, fix discoverability via param descriptions/schema**
+
+**Rationale:**
+- `buildIdOrUrl` is AzDO-specific naming (PR #62 standardized it there)
+- Helix tools predated that naming convention and use `jobId` (Helix-native, correct for domain)
+- Renaming `jobId` → `helixJobId` (option a) is too verbose and wastes schema space
+- Adding `buildIdOrUrl` alias (option b) creates false symmetry (Helix doesn't accept build IDs, only job IDs)
+- **Option (c):** Keep the names as-is, fix the root cause via Q2 (schema audit ensures descriptions are clear: "Helix Job ID (GUID)" vs "AzDO Build ID or URL")
+
+**Secondary action:** Ensure agent training materials distinguish the tools by family:
+- **AzDO tools**: `buildIdOrUrl` (accepts build ID integer or full URL)
+- **Helix tools**: `jobId` (GUID, e.g., "a1b2c3d4-e5f6-...")
+- **Maestro tools**: `buildId` (integer BAR ID)
+
+**Owner:** Ash (update `CiKnowledgeService` response to flag this distinction)  
+**Timeframe:** Async with Q2 audit
+
+---
+
+### Q5: Sequencing — What Ships in v0.7.5?
+
+**Revised Verdict: CallToolFilters Filter is the headline item. Ships in v0.7.5 (this week) immediately.**
+
+**v0.7.5 (Target: Days 1–3, ~1–2 hours implementation)**
+1. **Ripley:** Implement callToolFilters middleware in `Program.cs` (~10 LOC). ~1 hour.
+2. **Ripley:** Add unit/integration test for filter (verify ArgumentException → McpException conversion). ~1 hour.
+3. **(Optional, deferred decision):** Per-tool prologues for combo-rules (2–4 tools, case-by-case). Deferred until filter ships and we see if combo rules are actually needed.
+
+**v0.7.5 Contents (Minimal, High-Value):**
+- ✅ CallToolFilters middleware (fixes all 25 tools, single point of implementation)
+- ✅ Test coverage (filter handles ArgumentException → McpException)
+- ✅ Filter test documents the pattern for future handling
+
+**What does NOT ship in v0.7.5:**
+- Schema audit (1–2 weeks, parallel work, not blocking)
+- Per-tool prologues (deferred pending filter feedback)
+- CiKnowledgeService naming guidance (async with schema audit)
+
+**v0.7.6+ Roadmap (Deferred):**
+- Schema audit findings + renames (if warranted after filter + agent feedback)
+- Per-tool prologues (case-by-case combo rules, only if needed)
+- ~~Upstream MCP SDK PR~~ (no longer needed — filter is local solution)
+
+**Gate:** None. Filter is standalone, ships independently of Q2 audit.
+
+**Why this sequencing is clean:**
+- Filter ships fast (1–2 hours) and solves the immediate problem (silent failures)
+- Schema audit continues in parallel as prevention/polish (not blocking release)
+- Per-tool work only happens if there's actual evidence of combo-rule failures (avoid preemptive work)
+
+---
+
+## Issue Filing Recommendation (Revised 2026-05-28, 13:30Z)
+
+**Action:** File new issue (do not reuse #61, which is for PR #64 centralization).
+
+**New Issue:** "Surface MCP SDK Parameter Binding Errors via McpException Middleware"
+
+**Title:** MCP CallToolFilters middleware to surface parameter binding errors  
+**Labels:** bug, mcp, tooling, high-priority  
+**Blocked on:** None
+
+**Body:**
+
+```markdown
+## Problem
+
+When MCP tool parameters fail to bind (missing parameter, wrong name, etc.), 
+the MCP client receives a generic "An error occurred invoking 'X'." message. 
+The real exception is logged to stderr but is lost from the error response.
+
+This makes debugging difficult — agents can't diagnose parameter mismatches 
+without access to server logs.
+
+## Root Cause
+
+Microsoft.Extensions.AI.AIFunctionFactory performs reflection-based parameter 
+binding *before* the tool method is invoked. If binding fails, it throws 
+ArgumentException. 
+
+The MCP Server catches this unhandled exception, logs it to stderr via ILogger, 
+but the error response formatter uses a generic message template instead of 
+including the exception message.
+
+## Observed Impact (Session b11893eb, 2026-05-28)
+
+4 silent failures in a single agent session:
+- helix_status: Agent used `buildIdOrUrl` instead of `jobId`
+- helix_search: Agent used `buildIdOrUrl` + `workItemPattern` (not `workItem`)
+- azdo_search_timeline: Agent used `jobNameRegex` (not `pattern`) + `results` (not `resultFilter`)
+- azdo_build_analysis: Agent used `prNumber` instead of `buildIdOrUrl`
+
+All four are Class A failures (parameter binding errors in SDK layer).
+
+## Solution (v0.7.5)
+
+Implement `CallToolFilters` middleware that intercepts `ArgumentException` 
+from SDK parameter binding and converts to `McpException`:
+
+```csharp
+// In Program.cs during MCP server setup
+options.Filters.Request.CallToolFilters.Add(next => async (request, ct) =>
+{
+    try { return await next(request, ct); }
+    catch (ArgumentException ex)
+    {
+        throw new McpException(
+            $"Parameter binding error for '{request.Params?.Name}': {ex.Message}", ex);
+    }
+});
+```
+
+**Scope:** All 25 MCP tools automatically protected  
+**Time:** ~1–2 hours (implementation + test)  
+**Benefit:** SDK binding errors now surface as `McpException` with actual error message
+
+## Supporting Work (v0.7.6+, Not Blocking)
+
+- [ ] **Schema audit:** Verify all tools declare required parameters correctly
+- [ ] **Tool family naming:** Document `jobId` (Helix) vs `buildIdOrUrl` (AzDO) in CiKnowledgeService
+- [ ] **Optional: Per-tool prologues:** Add cross-parameter validation for combo-rules (only if needed after filter ships)
+
+## Related
+
+- Ash's investigation: `.squad/decisions/inbox/ash-silent-mcp-failures-post-v0.7.4-2026-05-28.md`
+- PR #64 (centralized exception handling for Class B runtime errors)
+- Issue #65 (exception handling follow-ups)
+- Dallas's policy decision: `.squad/decisions/inbox/dallas-mcpexception-policy-2026-05-28.md`
+
+## Acceptance Criteria
+
+- [ ] v0.7.5 ships with CallToolFilters middleware for ArgumentException → McpException
+- [ ] Filter includes unit test verifying conversion and message preservation
+- [ ] Schema audit planned for v0.7.6 (independent of filter)
+```
+
+**Assign to:** Ripley (implementation)
+
+---
+
+## Architectural Learning: McpException as Surfacing Channel
+
+**Key insight:** The MCP SDK's suppression of inner exceptions is intentional—a security boundary to prevent server internals from leaking to clients.
+
+**Our strategy:**
+- **Do NOT try to defeat this mechanism** (e.g., with middleware hacks or SDK patches)
+- **Instead, use `McpException` as the designated channel** where we want the client to see detail
+- **Validate early, throw `McpException` with clear context**, so the exception surfaces correctly
+- **Let the SDK swallow everything else**—if an exception doesn't go through `McpException`, the client seeing a generic message is acceptable (it's intentional security design)
+
+**Three layers of MCP error handling:**
+1. **SDK Layer (Parameter Binding)** — Microsoft.Extensions.AI.AIFunctionFactory
+   - Validates parameters during reflection-based marshalling
+   - Throws ArgumentException if binding fails
+   - Caught by MCP Server, logged to stderr, generic response sent
+   - **Our lever:** Validation prologue (throw `McpException` before calling service)
+
+2. **MCP Server Layer (Error Formatting)** — ModelContextProtocol.Server
+   - Catches unhandled exceptions
+   - Logs full exception via ILogger
+   - Formats error response with generic message template
+   - **Our lever:** (Deferred to v0.7.6; explore middleware in Q2 findings)
+
+3. **Application Layer (Runtime Exception Handling)** — Our code (PR #64, `McpExceptionHandler`)
+   - Catches exceptions thrown inside tool method
+   - Wraps with structured error message
+   - Produces actionable error text
+   - **Our lever:** Already covered by PR #64; no action needed
+
+**Future investigations:** When triaging MCP errors, immediately classify which layer they originate in. Class A (SDK layer) requires validation prologue or upstream SDK change; Class B (app layer) is fixed by PR #64; Class C (schema drift) is prevented by audit in Q2.
+
+---
+
+## Constraints & Acknowledgments
+
+- **No code changes** by me (per charter)—Ripley owns implementation
+- **Security-by-design respected**—the original silent-fail was annoying but the SDK chose it for good reasons; we're not trying to bypass it
+- **Specificity on scope**—validation prologue lands on identified high-risk tools (8–12), not all 25
+- **Gate: Schema audit first**—Ripley's Q2 audit identifies which tools need combo validation before writing the prologue
+
+---
+
+## Summary of Decisions (Revised 2026-05-28, 13:30Z)
+
+| Question | Verdict | Details | Owner | Timeframe | v0.7.5? |
+|----------|---------|---------|-------|-----------|---------|
+| **Q1: Validation logic?** | **ADOPT CallToolFilters** (PRIMARY) | Middleware filter intercepts ArgumentException from SDK binding, converts to McpException centrally (~10 LOC). Per-tool prologues only for combo-rules (narrow scope, deferred decision). | Ripley | 1–2 hours | ✅ YES (filter) |
+| **Q2: Schema audit?** | **AUDIT** (SUPPORTING) | Independent of filter. Better schemas = prevention (agents guess less). Filter is safety net. | Lambert or Ash | 1–2 weeks | ❌ Report only |
+| **Q3: Handler wrap more?** | **DONE** (no action) | PR #64 already covers runtime. Class A errors happen in SDK layer before method invocation. | — | — | — |
+| **Q4: Naming drift fix?** | **(c) Accept, fix via schema** | Keep names as-is (jobId=Helix, buildIdOrUrl=AzDO). Schema audit + CiKnowledgeService provide guidance. | Ash | Async with Q2 | — |
+| **Q5: v0.7.5 contents?** | **Filter ship fast** | CallToolFilters filter (~10 LOC, all tools). Schema audit parallel, not blocking. No per-tool prologues in v0.7.5. | Ripley | Days 1–3 | ✅ YES |
+
+---
+
+## Next Steps
+
+1. **This week (Days 1–3):** Ripley implements callToolFilters middleware in `Program.cs` + unit test
+2. **This week (parallel):** Lambert or Ash begins schema audit (not blocking release)
+3. **Week 2:** v0.7.5 ships with filter
+4. **Week 2–3:** Schema audit results inform v0.7.6 planning (renames, per-tool work, if needed)
+5. **Post-release:** Per-tool prologue decisions deferred until filter ships and we see actual combo-rule failures
+
+---
+
+## Next Steps
+
+1. **This week:** Share decision with Ripley + Ash; they scope schema audit
+2. **Days 3–5:** Ripley completes schema audit, Dallas reviews findings
+3. **Days 5–10:** Ripley implements validation prologue PR (gated on audit), Ash updates CiKnowledgeService
+4. **Week 2:** New issue filed for v0.7.6 follow-ups (middleware + upstream SDK)
+5. **v0.7.5 release:** Prologue + schema audit findings shipped
+
+---
+
+## Document History
+
+- **2026-05-28, 13:00Z:** Initial decision document. Verdicts on all five questions. v0.7.5 sequencing clarified.
+
+
+---
+
+## Code Review: PR #66 — Helix Work Item Status Fix
+
+# PR #66 Review — fix(helix): waiting work items must not be counted as failed
+
+**Reviewer:** Dallas (Lead)
+**Date:** 2026-05-28
+**Author:** akoeplinger (Alexander Köplinger, external contributor — dotnet runtime team)
+**Branch:** `fix/in-progress-workitems-not-failed`
+
+---
+
+## Per-Section Verdicts
+
+### 1. Bug Analysis Correctness — ✅ Verified
+
+The bug is real and correctly diagnosed. On `main`:
+- `CreateDetailedResultAsync` line 110: `var exitCode = details.ExitCode ?? -1;` coerces null → -1 for Waiting/Running/Unscheduled work items.
+- `GetJobStatusAsync` lines 85-86: `results.Where(r => r.ExitCode != 0)` then buckets -1 as failed.
+- Helix SDK `IWorkItemDetails.ExitCode` is `int?` (confirmed in `IHelixApiClient.cs:48`), returning `null` for in-progress states.
+- Production shape confirmed: 2 osx jobs × (1 Finished + 24 Waiting) → misreported as `failedCount: 24` each.
+
+### 2. Fix Correctness and Completeness — ✅ Verified (with minor follow-up)
+
+- `IsCompleted = details.ExitCode.HasValue` correctly covers all in-progress states (Waiting, Running, Unscheduled — all return `ExitCode == null`).
+- Three-way bucketing `(!IsCompleted → InProgress, IsCompleted && != 0 → Failed, IsCompleted && == 0 → Passed)` is correct and exhaustive.
+- `FailureCategory` classification now correctly gated by `isCompleted && exitCode != 0`.
+- `CreatePassedResult` (line 94) doesn't specify `IsCompleted`, defaulting to `true` — correct since it's only called when `wi.ExitCode == 0` at summary level.
+- `CachingHelixApiClient` preserves `ExitCode` as `int?` through the cache layer; `IsCompleted` is derived at the service layer. No cache deserialization risk.
+
+**Minor follow-up (not a blocker):** `GetWorkItemDetailAsync` at line 563 has the same `ExitCode ?? -1` → `ClassifyFailure` pattern for single work item detail views. This is a different code path (informational, not aggregation) and the `State` field gives consumers context, but ideally should get the same `IsCompleted` treatment for consistency. File as follow-up issue.
+
+### 3. Wire Format / API Contract — ✅ Verified Additive
+
+- New fields: `inProgressCount` (int, defaults 0), `inProgress` (nullable list, `JsonIgnore(WhenWritingNull)`), `totalInProgress` (int, defaults 0).
+- Existing fields (`failedCount`, `passedCount`, `totalFailed`, `totalPassed`) unchanged in name, type, and position.
+- `failedCount` semantics changed: previously included in-progress items (bug), now correctly excludes them. This is a **bug fix**, not a breaking change — consumers who were getting inflated counts now get correct ones.
+- JSON property casing: all `camelCase` (`inProgressCount`, `totalInProgress`, `inProgress`) — consistent with existing DTO conventions.
+- `JsonIgnore(WhenWritingNull)` on `inProgress` list means old consumers won't see the field when empty — clean additive behavior.
+- No tests assert absence of `inProgressCount` in JSON output.
+
+### 4. CLI Behavior — ✅ Verified
+
+- `hlx status` text: adds "In progress: N" section with yellow coloring, only when `InProgress.Count > 0`. Existing output lines unchanged.
+- `hlx batch-status` text: appends `, N in progress` to per-job and overall lines only when present. Existing format preserved.
+- JSON output (`--json`): `inProgressCount` and `inProgress` added additively.
+- No CI scripts in this repo parse `hlx status` text output.
+
+### 5. Tests — ✅ Sufficient
+
+- `GetJobStatusAsync_WaitingWorkItems_AreInProgress_NotFailed`: 1 finished + 2 waiting, asserts `Failed.Count == 0`, `InProgress.Count == 2`, `IsCompleted == false`.
+- `GetBatchStatusAsync_WaitingWorkItems_DoNotInflateTotalFailed`: Reproduces exact production shape (2 jobs × 1 finished + 24 waiting), asserts `TotalFailed == 0`, `TotalInProgress == 48`.
+- Regression verification: Tests reference `InProgress`/`TotalInProgress` which don't exist on main — compilation failure against pre-fix code confirms the tests are structurally tied to the fix.
+- Tests follow project patterns: xUnit, NSubstitute mocking, same file (`HelixServiceStatusOptimizationTests`), consistent `Arrange/Act/Assert` style.
+- **Nice-to-have edge cases** (not blocking): mixed Finished+Waiting+Failed in same job; all-Waiting job; cached replay with `IsCompleted` absent. These can be follow-up.
+
+### 6. Merge Conflict Risk — ✅ Manageable
+
+- **PR #68 (Lambert)**: Touches `HelixMcpTools.cs` attribute `[Description]` strings on line 26 (`helix_status`). PR #66 touches `HelixMcpTools.cs` body at lines 58-75 (adding `InProgressCount`/`InProgress` to `StatusResult` construction). Different hunks — **no conflict**.
+- **PR #68**: Also touches `.squad/` files (deleted decision inbox files, added test). No overlap with #66.
+- **PR #69 (Ripley)**: Touches `Program.cs` at line 864+ (`Mcp()` method — CallToolFilters middleware). PR #66 touches `Program.cs` at lines 299-600 (`Status()` and `BatchStatus()` methods). Different methods — **no conflict**.
+- **PR #69**: Also touches `HelixTool.Mcp/Program.cs` which PR #66 does NOT touch. No conflict.
+
+### 7. Build + Test Gate — ✅ Verified
+
+- `dotnet build`: 0 warnings, 0 errors.
+- `dotnet test`: 1295 passed, 0 failed, 2 skipped (unchanged skip count from main).
+- CI checks: `build (ubuntu-latest)` and `build (windows-latest)` were IN_PROGRESS at review time; `Squad CI / test` completed SUCCESS.
+- New tests exercise the exact fix path (Waiting work items with `ExitCode == null`).
+
+### 8. Style / Conventions — ✅ Clean
+
+- Follows existing record patterns in `HelixService.cs` (`WorkItemResult`, `JobSummary`, `BatchJobSummary`).
+- `IsCompleted = true` default parameter on `WorkItemResult` record — backward-compatible for all existing callers.
+- C# naming conventions followed (`IsCompleted`, `InProgress`, `TotalInProgress`).
+- No new dependencies.
+- XML doc comments updated on `WorkItemResult` and `JobSummary`.
+
+---
+
+## Merge Sequencing
+
+**Recommended order: #66 first, then #68, then #69.**
+
+1. **#66 (this PR)** — Real production bug fix from external contributor. No conflicts with either in-flight PR. Merge first to unblock the external contributor and fix the bug.
+2. **#68 (Lambert)** — Description attribute improvements. Independent of #66 changes (different hunks in shared files).
+3. **#69 (Ripley)** — CallToolFilters middleware. Independent of #66 (different methods in Program.cs).
+
+No rebase needed for any ordering since all three PRs touch non-overlapping hunks.
+
+---
+
+## Follow-Up Items (non-blocking)
+
+1. **`GetWorkItemDetailAsync` ExitCode ?? -1 consistency**: Line 563 has the same sentinel pattern for single work item detail views. Should get `IsCompleted` treatment for consistency. File as separate issue.
+2. **Additional test edge cases**: Mixed Finished+Waiting+Failed in same job; all-Waiting job. Lambert can add in a follow-up.
+
+---
+
+## Final Verdict
+
+**APPROVE & MERGE**
+
+Clean, well-scoped bug fix with solid regression tests. Wire-format changes are strictly additive. No conflicts with in-flight PRs. External contributor provided thorough write-up with production evidence. Merge first, before our internal PRs.
+
+---
+
+## Audit: MCP Schema and Parameter Descriptions (PR #68 Support)
+
+# Lambert MCP Schema Audit — Required Params + Description Clarity
+
+**Date:** 2026-05-28  
+**Issue:** #67  
+**Inputs:** Dallas policy Q2; Ash silent-failure investigation; local `tools/list` before/after dumps.
+
+## Summary
+
+- **Tools audited:** 25 `[McpServerTool]` methods across AzDO, Helix, and CI guidance.
+- **Generated `required` arrays:** 25/25 match the C# signature shape (non-null/no-default parameters are required; nullable/default parameters are optional).
+- **Parameter description coverage:** 25/25 tools had at least one user-visible described parameter before; reflection test now enforces every user-visible parameter has a non-empty `[Description]`.
+- **Adequate AzDO/Helix disambiguation:** 10/25 before → 25/25 after.
+- **Quick-win fixes shipped:** description-only changes; no production logic, type, or method-name changes.
+- **Flagged follow-up:** 8 schema/signature expressiveness issues for Dallas/Ripley (not changed here).
+
+## Key findings
+
+1. The SDK does emit `required` correctly for simple required parameters: e.g. `helix_status.required = ["jobId"]`, `azdo_search_timeline.required = ["buildIdOrUrl", "pattern"]`.
+2. The worst prevention gap was not missing `[Description]`; it was **weak family disambiguation**. AzDO `buildIdOrUrl` and Helix `jobId` both looked plausible to agents until descriptions explicitly said “not a Helix job ID” / “not an AzDO build ID”.
+3. JSON numeric tokens sent to string ID parameters are a real SDK binding problem, not a misread. Local repro with `jobId: 1438863` and `buildIdOrUrl: 1438863` produced `System.Text.Json.JsonException: The JSON value could not be converted to System.String` before tool logic.
+4. Several Helix tools have conditional requirements (`workItem` required unless `jobId` is a full work-item URL; `helix_download` requires either `url` or `jobId`+`workItem`). Plain generated schema cannot express those combos today.
+
+## Matrix
+
+| Tool | Required in tools/list | Description/disambiguation after pass | Action |
+|---|---:|---|---|
+| `azdo_artifacts` | `buildIdOrUrl` | OK — AzDO build ID/URL, JSON string, not Helix | fixed-in-PR |
+| `azdo_auth_status` | none | OK — AzDO auth status | OK |
+| `azdo_build` | `buildIdOrUrl` | OK — AzDO build details, not Helix | fixed-in-PR |
+| `azdo_build_analysis` | `buildIdOrUrl` | OK — AzDO build ID/URL, not PR number | fixed-in-PR |
+| `azdo_builds` | none | OK — AzDO org/project/list filters | fixed-in-PR |
+| `azdo_changes` | `buildIdOrUrl` | OK — AzDO build changes, not Helix | fixed-in-PR |
+| `azdo_helix_jobs` | `buildIdOrUrl` | OK — bridge from AzDO build to Helix job GUIDs | fixed-in-PR |
+| `azdo_log` | `buildIdOrUrl`, `logId` | OK — AzDO build URL + AzDO log ID from timeline | fixed-in-PR |
+| `azdo_search_log` | `buildIdOrUrl` | OK — AzDO build logs; pattern is substring, not regex | fixed-in-PR |
+| `azdo_search_timeline` | `buildIdOrUrl`, `pattern` | OK — AzDO timeline search; `pattern` replaces guessed `jobNameRegex` | fixed-in-PR |
+| `azdo_test_attachments` | `runId`, `resultId` | OK — Azure DevOps test run/result IDs | fixed-in-PR |
+| `azdo_test_results` | `buildIdOrUrl`, `runId` | OK — AzDO build + AzDO test run | fixed-in-PR |
+| `azdo_test_runs` | `buildIdOrUrl` | OK — AzDO test run summaries | fixed-in-PR |
+| `azdo_timeline` | `buildIdOrUrl` | OK — AzDO timeline; log IDs route to AzDO log tools | fixed-in-PR |
+| `helix_auth_status` | none | OK — Helix auth status | OK |
+| `helix_batch_status` | `jobIds` | OK — array of Helix GUID strings/URLs, not AzDO build IDs | fixed-in-PR |
+| `helix_ci_guide` | none | OK — guidance for choosing AzDO vs Helix tools | fixed-in-PR |
+| `helix_download` | none | Description clearer, but schema cannot express `url` XOR `jobId`+`workItem` | flagged-for-followup |
+| `helix_files` | `jobId` | Description clearer, but `workItem` is conditionally required unless URL includes it | flagged-for-followup |
+| `helix_find_files` | `jobId` | OK — Helix job GUID/URL, not AzDO build ID | fixed-in-PR |
+| `helix_logs` | `jobId` | Description clearer, but `workItem` is conditionally required unless URL includes it | flagged-for-followup |
+| `helix_parse_uploaded_trx` | `jobId` | Description clearer, but `workItem` is conditionally required unless URL includes it | flagged-for-followup |
+| `helix_search` | `jobId` | Description clearer, but `workItem` is conditionally required unless URL includes it | flagged-for-followup |
+| `helix_status` | `jobId` | OK — Helix job GUID/URL, not AzDO build ID | fixed-in-PR |
+| `helix_work_item` | `jobId` | Description clearer, but `workItem` is conditionally required unless URL includes it | flagged-for-followup |
+
+## Flagged follow-up details
+
+1. **Systemic string-ID numeric binding:** string ID params (`jobId`, `buildIdOrUrl`) reject JSON numbers. Decide whether to add custom converters/input wrappers or keep requiring quoted IDs.
+2. **`helix_download`:** schema shows no required params because all are optional/defaulted, but runtime requires either `url` or `jobId` plus a work item (explicit or embedded in URL).
+3. **`helix_logs`:** `workItem` is optional in schema but required unless `jobId` is a full work-item URL.
+4. **`helix_files`:** same conditional `workItem` rule.
+5. **`helix_work_item`:** same conditional `workItem` rule.
+6. **`helix_search`:** same conditional `workItem` rule.
+7. **`helix_parse_uploaded_trx`:** same conditional `workItem` rule.
+8. **Conditional schemas generally:** consider JSON Schema `oneOf`/custom annotations only if the MCP SDK supports overriding generated schemas safely.
+
+## Before/after excerpt
+
+Before:
+
+```text
+helix_status required=['jobId'] jobId="Helix job ID (GUID), Helix URL, or full work item URL"
+azdo_search_timeline required=['buildIdOrUrl','pattern'] buildIdOrUrl="AzDO build ID or full build URL" pattern="Text pattern to search for (case-insensitive)"
+azdo_build_analysis required=['buildIdOrUrl'] buildIdOrUrl="AzDO build ID or full build URL"
+```
+
+After:
+
+```text
+helix_status required=['jobId'] jobId="Helix job ID as a JSON string (GUID), Helix job URL, or full Helix work item URL; not an AzDO build ID"
+azdo_search_timeline required=['buildIdOrUrl','pattern'] buildIdOrUrl="AzDO build ID as a JSON string (for example, '1438863') or full Azure DevOps build URL; not a Helix job ID" pattern="Case-insensitive text substring to search for; not a regex"
+azdo_build_analysis required=['buildIdOrUrl'] buildIdOrUrl="AzDO build ID as a JSON string (for example, '1438863') or full Azure DevOps build URL; not a Helix job ID"
+```
