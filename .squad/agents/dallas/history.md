@@ -1,83 +1,3 @@
-
-**2026-05-21 10:33Z:** Ash audit complete. 3 decisions pending for your review: service-layer validation, azdo_auth_status sync vs async, structured error codes. See decisions.md.
-
-**2026-05-21 17:58Z:** Completed design proposal for surfacing WorkItemSummary.ExitCode + ConsoleOutputUri. Filed to `.squad/decisions/inbox/dallas-surface-workitem-fields.md`. Key call: optimize GetJobStatusAsync (skip detail fetch for passed items), defer ConsoleOutputUri streaming.
-
-## Learnings — Slop audit triage 2026-05-22
-
-- **Structural duplication > boilerplate repetition for triage priority.** Ash's audit found 16 catch-throw handlers (high count) and 6 DTO classes (schema duplication, low count). Verdict: FIX the DTOs (functional duplication, maintainability hazard); DEFER the handlers (control-flow refactoring creates risk of silent behavior change). Boilerplate extracted without formal exception-path coverage can break silently.
-- **Exception handler extraction requires test coverage before refactoring.** The catch blocks are a control boundary; refactoring them into a shared helper without exercising all 16 paths (pass-through behavior, exception propagation, stack trace preservation) risks silently changing exception semantics. Safer to defer extraction until we have explicit exception test coverage.
-- **Style drift (attribute placement, naming) is not worth a refactor PR.** [JsonPropertyName] placement inconsistency (inline vs above-line) and usage (some with attributes, some relying on defaults) is low-priority. Bundle standardization into the next structural refactor rather than spinning a dedicated PR. Functional correctness (schema match) > consistency (attribute placement style).
-- **Intentional API versioning (service models vs MCP results) is not slop.** The separation between AzdoModels.cs (API-level) and McpToolResults.cs (tool-level) is a deliberate stability boundary. Schema versions evolve independently at that boundary; this is good architecture, not tech debt. Flag false positives like this to reject without guilt.
-- **Ripley sequencing after a metadata pass: avoid churn.** PR #57 just landed (description tightening). Adding structural refactors immediately after metadata PRs creates thrashing. Sequence the DTO consolidation as a separate, lower-priority PR. Do not bundle multiple refactors into a single spike unless they directly conflict.
-
----
-
-- **Adapter pattern depth:** The SDK-to-interface adapter layer is shallow (3 classes: HelixApiClient adapters, CachingHelixApiClient DTOs). Adding fields is mechanical: interface → adapter → cache DTO. The cache DTO must match the interface for JSON round-trip fidelity.
-- **IWorkItemSummary is intentionally thin:** Only `Name` was exposed. ExitCode lived exclusively on `IWorkItemDetails`. This forced an N+1 fetch pattern in `GetJobStatusAsync` that the new SDK fields can eliminate.
-- **Nullability as version signal:** When extending interfaces with SDK-backed fields from beta packages, always make new properties nullable. Null means "server didn't provide it" — safe fallback to existing code paths.
-- **Brady values:** Bullet-heavy proposals, concrete before/after call counts, explicit file lists for handoff, and clear rollout recommendations (patch vs minor). Keep it tight.
-- **AzDO timeline has two orthogonal axes:** `state` (pending/inProgress/completed) is lifecycle; `result` (succeeded/failed/canceled/skipped/abandoned/succeededWithIssues) is outcome, only meaningful when state=completed. `issues` is a third orthogonal dimension. Never conflate these in a single filter without clearly documenting the mapping.
-- **MCP filter design: prefer named presets over orthogonal params for LLM consumers.** Presets encode valid combinations and avoid invalid cross-product states. Shape A (richer enum) beats Shape B (two params) when the axes have dependent validity.
-- **Two naming conventions coexist in MCP tools:** Pass-through params (values sent to AzDO API) use AzDO-verbatim casing (`inProgress`, `Stage`). Preset params (values interpreted by our logic) use friendly lowercase (`failed`, `running`). Don't mix conventions within a param type. Use silent aliases (NormalizeFilter) to bridge when an LLM carries a pass-through name into a preset param.
-- **Key files for AzDO filter logic:** MCP layer: `src/HelixTool.Mcp.Tools/AzDO/AzdoMcpTools.cs` (3 tools). Service layer: `src/HelixTool.Core/AzDO/AzdoService.cs` (SearchTimelineAsync, GetHelixJobsAsync). Model: `src/HelixTool.Core/AzDO/AzdoModels.cs` (AzdoTimelineRecord has State, Result, Issues).
-- **MCP description audit cadence (2026-05-22):** Approved PR #57 (3c4728c) — second description-tightening pass, ~3 months after the 2026-02-13 original. 8 of 25 tools had drifted back above the rubric threshold. Pattern: audit quarterly, or after any batch of new tools lands. Key rubric rules: lead with verb, ≤25 words, push filter enums and defaults to param-level `[Description]`, keep cross-references (e.g. `azdo_log`, `azdo_search_timeline`) as the one exception. Domain knowledge (repo lists, org names like `devdiv`) belongs in `CiKnowledgeService` response content, not always-loaded tool metadata.
-- **Test strategy for description metadata:** Pin routing-intent phrases (e.g. "Repo-specific CI guidance") in description-string tests, but assert domain-specific discoverability details (e.g. `devdiv`) against `CiKnowledgeService` response content where they actually live. Avoids fragile coupling between test assertions and metadata that should stay compact.
-
-
-# Summary (archived 1 older sections)
-
-See history-archive.md for complete history.
-- [2026-05-22] v0.7.3 shipped (PR #56 + PR #57 → main → NuGet)
-
-## 2026-05-22 — Slop Audit Triage Complete, PR #58 Merged
-
-**Status:** Triaged Ash findings → Ripley implementation → PR #58 merged to main
-
-Recommended DTO consolidation PR (Finding #1 verdict: FIX) successfully implemented and merged. Deferred exception handler extraction (Finding #2) to Q3 2026 pending exception test coverage improvement. Rejected findings #3–6 per architectural and risk analysis.
-
-Slop audit pattern established. Ready for future audits.
-
-## Learnings — Issue #59 Triage (2026-05-22)
-
-- **Measurement-first audits beat word-counting for metadata work.** PR #57's headline claimed 29→14 and 45→20 word reductions, suggesting large agent-visible savings. Actual `tools/list` token-count audit (gpt-4o tokenizer) showed −164 tokens (−2.0%) across the release range. The real wins came from PR #51's `LimitedResults<T>` wrapper (zero description changes, −257 tokens) and PR #57's text trims (−110), but PR #56's filter-preset schema additions reclaimed +113. Description word-count metrics are insufficient; always measure the full JSON footprint.
-
-- **Tokenizer-measurement methodology is reusable and should be standing practice.** The measurement snippet (bash + Python gpt-4o tokenizer) is repeatable and gives conclusive evidence. Overhead is ~30 minutes (snapshot before, land PR, snapshot after, diff). Adopted as checklist item for future description PRs: measure, record delta in PR body, store methodology in `.squad/skills/mcp-description-rubric.md` Appendix.
-
-- **Schema growth from one PR can cancel text trims from another.** PR #56's filter presets added inputSchema properties; PR #57's text trims were contemporaneous. The two effects netted to a small total savings. Lesson: audit in measurement-first order, not PR order. Track all tools' token contributions across a release range, not just the tools targeted by any single PR.
-
-- **Generalization patterns (like `LimitedResults<T>`) are high-leverage opportunities.** PR #51's wrapper migration was unplanned discovery: two tools got −164 and −93 tokens with zero description changes. Lewing identified three candidate tools for the same treatment. Worth a sub-question (Ripley audit) before committing: does the pattern generalize safely? Expected upside if it does: −150–250 additional tokens (3× the entire PR #57 word-trim win).
-
-- **Defer diffuse follow-ups; do targeted ones immediately.** Issue #59 proposed three follow-ups: (1) Trim `azdo_search_timeline` params (+69 from PR #56) = targeted, measurable, ACCEPT. (2) "Top-5 tool 20% trim pass" = broad, unscoped, no evidence = DEFER pending Ash's investigation audit in 2–3 weeks. (3) `LimitedResults<T>` extension = targeted pattern, unknown safety = ACCEPT Phase 1 (Ripley audit), conditional on Phase 1 result.
-
-- **Evidence-first decision sequencing avoids orphaned work.** Lewing provided per-tool token deltas with full release-range context. This made it possible to confidently accept or defer each follow-up without speculation. For Follow-up #2 (top-5 audit), the issue provided the math but no field audit. Decision: defer to investigation spike, then convert to a follow-up issue with per-tool targets. This prevents Ripley from guessing which tools to trim.
-
-**Decision document:** `.squad/decisions/inbox/dallas-issue59-triage-2026-05-22.md`
-
----
-
-### Retriage — New Structural Data (2026-05-22, 14:50Z)
-
-blazor-playground/copilot-skills measurement agent provided field-level breakdown: **outputSchema 37% (3,032 tokens), inputSchema 33.5% (2,742 tokens), annotations 9.7% (791 tokens), description 7.2% (588 tokens)**. This inverts priority: PR #57 attacked the smallest contributor. Original triage was undersized; revised verdicts below.
-
-**Key revelation:** PR #51's `LimitedResults<T>` win was outputSchema shrinkage by type simplification, not a one-off. Top-10 tools carry 58% of cost; many are list-returning. Pattern likely generalizes to −300–600 tokens (Phase 1 audit identifies candidates). Combined with a DTO-trim pass on top-10 tools (outputSchema + inputSchema reduction), ceiling jumps from original −80–300 to −940–2,080 tokens (11–25% of total cost).
-
-**Revised verdicts:**
-- **Follow-up 1 (param trim):** ACCEPT (elevated scope). Not just descriptions—inputSchema enum descriptions are the lever. Filter-preset enum on azdo_timeline alone = 88 tokens. Estimate: −40–80 tokens across affected tools.
-- **Follow-up 2 (LimitedResults<T>):** ACCEPT (now headline lever). Expand to full top-10 outputSchema audit. Phase 1: Ripley identifies LimitedResults<T> + other simplification candidates. Phase 2: implement. Estimate: −300–600 tokens.
-- **NEW Follow-up 4 (outputSchema DTO-trim on top-10):** **ACCEPT, highest priority.** Tighten DTO shapes, trim per-property descriptions, adopt $ref for shared schemas. Author ceiling: −500–1,500 tokens (50% of outputSchema cost, 10× PR #57 win). Phase 1: Ripley audits top-10, identifies targets. Phase 2: implement. Risk: DTO shape changes affect downstream; mitigate via measurement + wire-format compatibility.
-- **NEW Follow-up 5 (annotations audit):** ACCEPT. Redundant annotations (e.g., openWorldHint=true matching SDK defaults) waste bytes. Estimate: −50–300 tokens. Quick 3–5 hour audit + cleanup.
-- **NEW Follow-up 6 (drop primitive outputSchema):** ACCEPT. Tools returning primitives (e.g., helix_auth_status → boolean) don't need auto-generated schema. Estimate: −50–100 tokens. Zero risk. 2 hours.
-- **Deferred (original broad top-5 audit):** Superseded. Refined follow-ups 4, 5, 6 provide field-level leverage points + sequenced Phase 1 audits.
-
-**Execution plan:** Ripley runs Phase 1 audits on Follow-ups 2, 4, 5, 6 in parallel (weeks 1–2). Phase 2 implementation on highest-ROI targets next (Follow-up 4, then Follow-up 2). Follow-up 1 lands after Follow-up 2 Phase 1. Total scope: 20–32 hours over 3 weeks. Expected recovery: −940–2,080 tokens.
-
-**Lesson learned:** Field-level structural breakdown is essential for prioritization. Metrics-first (word counts, boilerplate counts) miss the actual cost drivers. Next MCP audit should report token distribution by field. Dallas will update the standing rubric to mandate field-breakdown measurement.
-
-**Retriage document:** `.squad/decisions/inbox/dallas-issue59-retriage-2026-05-22.md`
-
----
-
 ## Learnings — Issue #61 Bug B Re-triage (2026-05-25)
 
 ### Deferral Calibration: When "Wait for Evidence" Becomes "Fix Now"
@@ -208,3 +128,11 @@ Both bugs fixed. Follow-up issue #65 filed for: schema test, flatten exceptions,
 
 - **Second code path with same bug pattern (`GetWorkItemDetailAsync` line 563) not addressed by PR.** Deliberately scoped to the aggregation path only — correct prioritization since the detail view is informational. Filed as follow-up. Pattern: when fixing a bug in one code path, grep for the same pattern in other paths and explicitly note what's in/out of scope.
 
+
+## 2026-05-28: PR #66 Review & Issue #67 Policy Decision
+
+**PR #66 Review:** Approved akoeplinger's external contribution fixing Helix waiting work items counted as failed. Identified follow-up on GetWorkItemDetailAsync line 563 ExitCode pattern. Coordinated merge sequencing with PR #68/69.
+
+**Issue #67 Policy Decision:** Reviewed Ash's silent MCP failure investigation. Decided on CallToolFilters middleware as central solution (ArgumentException → McpException, ~10 LOC, all 25 tools). Sequenced v0.7.5 release with CallToolFilters as primary item, schema audit parallel. Deferred per-tool validation prologues (only for combo-rules, narrow scope).
+
+**Deliverables:** PR #66 review document + McpException policy decision document (merged into decisions.md 2026-05-28)
