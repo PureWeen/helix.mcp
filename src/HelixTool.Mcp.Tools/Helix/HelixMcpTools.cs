@@ -104,7 +104,7 @@ public sealed class HelixMcpTools
     public async Task<string> Logs(
         [Description("Helix job ID as a JSON string (GUID), Helix job URL, or full Helix work item URL; not an AzDO build ID")] string jobId,
         [Description("Helix work item name; optional only when jobId is a full Helix work item URL")] string? workItem = null,
-        [Description("Lines from end to return (default: all)")] int? tail = 500)
+        [Description("Lines from end to return (default: 500 most recent lines)")] int? tail = 500)
     {
         // If workItem not provided, try to extract from jobId URL
         if (string.IsNullOrEmpty(workItem) && HelixIdResolver.TryResolveJobAndWorkItem(jobId, out var resolvedJobId, out var resolvedWorkItem))
