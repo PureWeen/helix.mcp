@@ -900,6 +900,8 @@ Available as `failureCategory` in JSON and MCP output.
                 var serverVersion = Assembly.GetExecutingAssembly()
                     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
                 options.ServerInfo = new() { Name = "hlx", Version = serverVersion };
+
+                options.AddBindingErrorFilter();
             })
             .WithStdioServerTransport()
             .WithToolsFromAssembly(typeof(HelixMcpTools).Assembly)

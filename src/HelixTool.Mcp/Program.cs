@@ -83,6 +83,8 @@ builder.Services
         var serverVersion = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
         options.ServerInfo = new() { Name = "hlx", Version = serverVersion };
+
+        options.AddBindingErrorFilter();
     })
     .WithHttpTransport()
     .WithToolsFromAssembly(typeof(HelixMcpTools).Assembly)
