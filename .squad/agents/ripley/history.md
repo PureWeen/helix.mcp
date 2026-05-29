@@ -155,3 +155,23 @@ Both bugs fixed. Follow-up issue #65 tracks schema test, flatten exceptions, uns
 - PR #69 shipped and merged; v0.7.5 release candidate pending
 
 **Next steps:** Per-tool validation prologues deferred pending filter feedback (only for combo-rules, narrow scope)
+
+## Learnings — v0.7.5 release flow (2026-05-28 Ripley mechanical release)
+
+**Release execution summary:**
+- Synced main branch: commit 5c7852e (via `git pull --ff-only`).
+- Bumped three version stamps: `src/HelixTool/HelixTool.csproj` (line 12) + `src/HelixTool/.mcp/server.json` (top-level "version" + packages[0].version) — all 0.7.4 → 0.7.5.
+- Build: 0 errors, 0 warnings (9.52s).
+- Tests: 1298 passed, 0 failed, 2 skipped (3s).
+- Release commit: c801bb5 (`release: v0.7.5`).
+- Tag: `v0.7.5` pushed to origin.
+- Publish workflow: triggered on tag push, run 26599303495, status in_progress.
+- Workflow URL: https://github.com/lewing/helix.mcp/actions/runs/26599303495
+
+**Shipped PRs in v0.7.5:**
+- PR #66 (akoeplinger): fix(helix): waiting work items must not be counted as failed — adds IsCompleted/InProgress bucketing.
+- PR #68 (Lambert): audit: MCP tool required-param schema clarity (#67 supporting work) — improves [Description] attributes, adds reflection coverage test.
+- PR #69 (Ripley): fix: surface MCP parameter-binding errors via CallToolFilters (#67) — adds AddBindingErrorFilter() middleware to surface previously-stripped binding error messages.
+
+**Issue closed:** #67 (by PRs #68/#69 in combination).
+
