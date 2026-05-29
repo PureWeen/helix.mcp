@@ -198,3 +198,13 @@ Both bugs fixed. Follow-up issue #65 tracks schema test, flatten exceptions, uns
 - **SemaphoreSlim(10) + 5s per-request timeout for sub-result expansion:** `AzdoService.GetTrueTestCountAsync` limits concurrent sub-result fetches to 10 with a 5-second timeout per request. Failed expansions count as 1 test each (conservative fallback).
 - **Single-object GET already supported:** `AzdoApiClient.GetAsync<T>` handles single JSON objects (not wrapped in `AzdoListResponse`), used for builds, timelines, and now test result sub-result expansion.
 - **Key file paths:** Models in `AzdoModels.cs` (`AzdoTestSubResult`, `TrueTestCountResult`, `TestRunTrueCount`), API methods in `AzdoApiClient.cs` and `IAzdoApiClient.cs`, service logic in `AzdoService.cs` (`GetTrueTestCountAsync`), MCP tool `azdo_true_test_count` in `AzdoMcpTools.cs`.
+
+
+## Ripley — PR #41 true-test-count rebase (2026-05-29T15:23:30-05:00)
+
+- Rebased `feature/true-test-count` onto main commit `9659a0fff4eddac259e14a1dc199148377cfa70f`; force-pushed new head `b8826eea4994a9d3517535283c8bdfdd166b7bc2`.
+- Phase 1 found 8 changed files: Ripley history plus AzDO API/client/cache/service/model/MCP tool changes and `TrueTestCountTests.cs`. Anticipated mainline conformance issues were MCP parameter naming/descriptions, read-only annotations, exception-wrapper style, and possible DTO consolidation.
+- Rebase had one conflict in `src/HelixTool.Mcp.Tools/AzDO/AzdoMcpTools.cs` where the stale branch inserted `azdo_true_test_count` at the same location main now uses for `azdo_auth_status`.
+- Resolution pattern: keep main's `azdo_auth_status` `CallToolResult`/`OpenWorld=false` shape, insert the new read-only tool before it, rename the build input to `buildIdOrUrl`, use detailed `[Description]` attributes, set `Destructive=false` and `OpenWorld=false`, and route failures through `McpExceptionHandler.RunServiceCallAsync`.
+- `TrueTestCountResult`/`TestRunTrueCount` stayed in `HelixTool.Core.AzDO` because the service returns them directly; no separate MCP-only result wrapper was introduced.
+- Validation passed: `dotnet build --nologo`; `dotnet test --nologo --no-build` (1305 passed, 2 skipped). PR comment posted with the rebase summary; immediate `statusCheckRollup` was empty after force-push.
