@@ -1,0 +1,7 @@
+# zizmor static-analysis configuration (https://docs.zizmor.sh/configuration/)
+rules:
+  excessive-permissions:
+    ignore:
+      # squad-promote genuinely needs contents: write — it pushes promotion
+      # commits to the preview/main branches (git push origin preview/main).
+      - squad-promote.yml
