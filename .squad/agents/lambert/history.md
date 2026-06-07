@@ -101,3 +101,26 @@ Every MCP tool method must have ≥1 test covering the unhappy path (exception �
 - Flagged 8 schema follow-ups: conditional-required params, JSON numeric→string ID binding, custom annotations for combo rules
 - Token measurement: 25 tools = 7,966 tokens (down 246 tokens / -3.0% from v0.7.3 baseline)
 - PR #68 shipped and merged; schema audit findings ready for v0.7.6 planning
+
+- **2026-06-01:** MCP `CallToolFilter` tests can wrap a capture handler for argument-mutation unit coverage, then wrap real `McpServerTool.InvokeAsync` for SDK binding coverage. Added 11 `McpServerOptionsExtensionsTests` cases for `buildIdOrUrl` alias normalization: 3 alias mappings, canonical conflict, missing-param binding error preservation, `azdo_build_analysis` and `azdo_search_timeline` end-to-end calls, multi-alias precedence (`build_id` wins), and 3 case-insensitive alias keys; full suite passed at 1312 passed / 2 skipped. **Status:** Dallas verdict and Ripley implementation both approved. All tests passing. Decision merged to decisions.md. Ready for team commit (2026-06-01T19:57:01Z).
+
+
+## 2026-06-01: Numeric buildIdOrUrl alias telemetry regression
+
+- Added regression coverage for real telemetry where `build_id` / `buildId` arrive as JSON numbers (for example `2989057`) instead of sanitized string samples.
+- Test count delta: +4 cases in `McpServerOptionsExtensionsTests`; full suite now passes at 1316 passed / 2 skipped after `dotnet test --nologo --no-build`.
+- Lesson: wire-format flexibility tests must mirror real telemetry shapes, not just sanitized examples.
+
+## Copilot PR #75 — Numeric JsonElement Regression Tests (2026-06-01)
+
+Added end-to-end regression tests for Ripley's numeric coercion fix.
+
+**Coverage:** 
+- `build_id: 2989057` → canonical `buildIdOrUrl: "2989057"` (string)
+- `buildId: 2989057` → canonical `buildIdOrUrl: "2989057"` (string)
+- Verified azdo_search_timeline SDK binding succeeds with numeric build IDs
+
+**Commit:** `015d304`  
+**Tests:** 1316 passed, 2 skipped (0 failed) — 4 new tests all green  
+**Branch:** `ripley/azdo-buildidorurl-aliases` (same as Ripley)
+
